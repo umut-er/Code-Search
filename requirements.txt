@@ -1,0 +1,7 @@
+mcp
+langgraph
+langchain
+langchain-openai
+python-dotenv
+pydantic
+async
