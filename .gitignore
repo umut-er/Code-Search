@@ -1,2 +1,5 @@
 env
 .env
+__pycache__
+benchmark_scratch
+benchmark_logs
