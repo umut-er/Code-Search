@@ -15,6 +15,7 @@ SYSTEM_PROMPT = (
     
     "2. **search_code(query)** [Semantic MCP]: \n"
     "   - Uses Vector Embeddings. Best for natural language queries, concepts, or finding logic when you don't know the exact variable names.\n"
+    "   - ALWAYS set the limit variable <= 5.\n"
     
     "3. **get_code_symbols(path)** [Native]: \n"
     "   - Uses Tree-Sitter (AST). Best for understanding file structure.\n"
