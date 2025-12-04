@@ -1,0 +1,99 @@
+<!-- FILE: cart_page.html -->
+<div class="cart-container">
+    <ul class="cart-list" id="cart-list">
+        <!-- Item 1 -->
+        <li class="cart-item" data-price="100" id="item-101">
+            <span class="item-name">Premium Widget</span>
+            <span class="item-price">$100.00</span>
+            <button class="btn-trash" aria-label="Remove Item">
+                <i class="icon-trash"></i>
+            </button>
+        </li>
+        <!-- Item 2 -->
+        <li class="cart-item" data-price="100" id="item-102">
+            <span class="item-name">Premium Widget</span>
+            <span class="item-price">$100.00</span>
+            <button class="btn-trash" aria-label="Remove Item">
+                <i class="icon-trash"></i>
+            </button>
+        </li>
+        <!-- Item 3 -->
+        <li class="cart-item" data-price="100" id="item-103">
+            <span class="item-name">Premium Widget</span>
+            <span class="item-price">$100.00</span>
+            <button class="btn-trash" aria-label="Remove Item">
+                <i class="icon-trash"></i>
+            </button>
+        </li>
+    </ul>
+    
+    <div class="cart-footer">
+        <div class="subtotal-row">
+            <span>Subtotal:</span>
+            <span id="cart-subtotal-display">$300.00</span>
+        </div>
+        <button id="btn-checkout">Proceed to Checkout</button>
+    </div>
+</div>
+
+<!-- FILE: cart_controller.js -->
+// Event delegation for removing items
+document.getElementById('cart-list').addEventListener('click', function(event) {
+    // Check if the clicked element is the trash button or icon inside it
+    const btn = event.target.closest('.btn-trash');
+    
+    if (btn) {
+        const itemRow = btn.closest('.cart-item');
+        
+        // 1. Send API request to remove item
+        api.removeFromCart(itemRow.id).then(() => {
+            // 2. Remove the visual element from DOM
+            itemRow.remove();
+            
+            // BUG: The developer forgot to call updateSubtotal() here!
+            // The item is gone visually, but the #cart-subtotal-display text remains "$300.00"
+            console.log("Item removed successfully");
+        });
+    }
+});
+
+function updateSubtotal() {
+    // ... logic to recalculate total ...
+}
+
+<!-- FILE: product_list.html -->
+<div class="product-listing">
+    <ul id="product-list">
+        <li class="product" data-id="101">
+            <span class="product-name">Premium Widget</span>
+            <span class="product-price">$100.00</span>
+            <button class="btn-add" aria-label="Add to Cart">Add to Cart</button>
+        </li>
+        <li class="product" data-id="102">
+            <span class="product-name">Premium Widget</span>
+            <span class="product-price">$100.00</span>
+            <button class="btn-add" aria-label="Add to Cart">Add to Cart</button>
+        </li>
+        <li class="product" data-id="103">
+            <span class="product-name">Premium Widget</span>
+            <span class="product-price">$100.00</span>
+            <button class="btn-add" aria-label="Add to Cart">Add to Cart</button>
+        </li>
+    </ul>
+</div>
+
+<!-- FILE: product_controller.js -->
+// Event delegation for adding items to cart
+document.getElementById('product-list').addEventListener('click', function(event) {
+    const btn = event.target.closest('.btn-add');
+    if (btn) {
+        const product = btn.closest('.product');
+        const productId = product && product.getAttribute('data-id');
+        const productName = product && product.querySelector('.product-name')?.textContent;
+        // 1. Send API request to add item
+        api.addToCart(productId).then(() => {
+            // 2. (Optional) Visual feedback or cart badge update
+            console.log(`Added to cart: ${productName} (${productId})`);
+        });
+    }
+});

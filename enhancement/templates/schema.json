@@ -1,0 +1,8 @@
+{
+  "ID": "string | null",
+  "Title": "string",
+  "Description": "string | null",
+  "OB": "string | null",
+  "EB": "string | null",
+  "S2R": "string | null"
+}

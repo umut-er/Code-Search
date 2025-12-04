@@ -1,0 +1,87 @@
+Example 1:
+BUG_REPORT:
+[Title] Checkout button unresponsive after adding items to cart
+
+I am trying to buy a subscription on the pricing page.
+When I click "Add to Cart" for the Pro plan, the cart icon updates correctly.
+However, when I click the "Checkout" button in the top right corner, nothing happens. There is no loading spinner and no redirection to the payment page.
+I checked the Chrome developer console and I see a red error: "Uncaught TypeError: Cannot read properties of undefined (reading 'submit')".
+
+ANALYSIS:
+{
+  "ID": null,
+  "Title": "Checkout button unresponsive after adding items to cart",
+  "Description": "User is attempting to purchase a Pro plan subscription. Issue identified in Chrome developer console.",
+  "OB": "Clicking the 'Checkout' button results in no action (no loading, no redirect). Console shows 'Uncaught TypeError: Cannot read properties of undefined (reading 'submit')'.",
+  "EB": "Clicking 'Checkout' should redirect the user to the payment page.",
+  "S2R": "1. Go to the pricing page. 2. Click 'Add to Cart' on the Pro plan. 3. Click the 'Checkout' button in the top right."
+}
+
+Example 2:
+BUG_REPORT:
+[Title] 404 Error on "Contact Us" footer link
+
+The link to the contact page in the footer seems to be broken.
+I was on the homepage (https://example.com), scrolled down to the bottom, and clicked "Contact Us".
+It took me to https://example.com/contact-us which displayed a standard 404 Not Found page.
+
+ANALYSIS:
+{
+  "ID": null,
+  "Title": "404 Error on 'Contact Us' footer link",
+  "Description": "Issue found on the homepage footer.",
+  "OB": "Clicking the 'Contact Us' link redirects to a URL that returns a 404 Not Found page.",
+  "EB": "The link should successfully load the Contact Us page.",
+  "S2R": "1. Navigate to https://example.com. 2. Scroll to the footer. 3. Click on 'Contact Us'."
+}
+
+Example 3:
+BUG_REPORT:
+[Title] Mobile menu overlaps content on iPhone
+
+ID: WEB-1024
+When viewing the dashboard on my iPhone 13 (Safari), if I open the hamburger menu, it covers the 'Save' button so I can't click it.
+The background of the menu is transparent but it should be solid white.
+
+ANALYSIS:
+{
+  "ID": "WEB-1024",
+  "Title": "Mobile menu overlaps content on iPhone",
+  "Description": "UI layout issue observed on iPhone 13 using Safari.",
+  "OB": "The hamburger menu overlaps the 'Save' button preventing clicks, and the menu background is transparent.",
+  "EB": "The menu background should be solid white and should not block critical UI elements like the 'Save' button.",
+  "S2R": "1. Open the dashboard on an iPhone 13 (Safari). 2. Open the hamburger menu."
+}
+
+Example 4:
+BUG_REPORT:
+[Title] Search returns empty results for existing products
+
+I searched for "wireless headphones" in the main search bar. I know we have them in the inventory because I see them on the catalog page.
+But the search result page says "No products found".
+
+ANALYSIS:
+{
+  "ID": null,
+  "Title": "Search returns empty results for existing products",
+  "Description": "User confirmed 'wireless headphones' exist in inventory/catalog.",
+  "OB": "Searching for 'wireless headphones' returns a 'No products found' message.",
+  "EB": "The search results should list the available wireless headphones.",
+  "S2R": "1. Type 'wireless headphones' into the main search bar. 2. Submit the search."
+}
+
+Example 5:
+BUG_REPORT:
+[Title] Login page is slow
+
+The login page takes forever to load. It's really annoying.
+
+ANALYSIS:
+{
+  "ID": null,
+  "Title": "Login page is slow",
+  "Description": "Performance complaint regarding the login page.",
+  "OB": "The login page takes a very long time to load.",
+  "EB": null,
+  "S2R": null
+}
