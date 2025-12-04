@@ -469,8 +469,8 @@ class LocalTools:
             import traceback
             return f"Error generating skeleton: {e}\n{traceback.format_exc()}"
 
-    @tool("search_code_lexical")
-    def search_code(query: str, path: str = ".", context_lines: int = 1) -> str:
+    @tool("grep_text")
+    def grep_text(query: str, path: str = ".", context_lines: int = 1) -> str:
         """
         Fast lexical search using Ripgrep (rg). Finds exact strings or regex patterns.
         Use this to find where variables, error messages, or functions are defined.
