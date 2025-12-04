@@ -354,7 +354,9 @@ class LocalTools:
             tree = parser.parse(bytes(code, "utf8"))
             
             # 2. Define queries to find foldable blocks
-            # We target function bodies, class bodies, and method bodies
+            # We target function bodies, class bodies, and method bodies.
+            # For TS/JS React files we will additionally fold large top-level
+            # style/constant blocks (e.g. styled-components) via a separate pass.
             if lang_name in ["typescript", "tsx", "javascript"]:
                 query_scm = """
                 (function_declaration body: (_) @body)
@@ -393,18 +395,42 @@ class LocalTools:
             else:
                 nodes = [node for node, name in captures_obj]
 
+            # 3. For TS/JS: also fold large top-level constant/style blocks
+            # (e.g. styled-components). We treat multi-line lexical/variable
+            # declarations as foldable, keeping only the first line visible.
+            if lang_name in ["typescript", "tsx", "javascript"]:
+                program = tree.root_node
+                for child in program.children:
+                    if child.type in ("lexical_declaration", "variable_declaration"):
+                        start_line = child.start_point[0]
+                        end_line = child.end_point[0]
+                        if (end_line - start_line) > 2:
+                            nodes.append(child)
+
             # 4. Filter and Sort Folds
             # We sort by start line to handle nesting logic
             nodes.sort(key=lambda n: n.start_point[0])
             
             fold_ranges = []
             last_fold_end_line = -1
+
+            # Special handling: for TS/JSX files, we want the RETURN JSX of the
+            # top-level component to remain visible. We approximate this by not
+            # folding the last N lines of the FIRST large function/class in the file.
+            keep_tail_lines = 12
+            top_component_seen = False
+            component_node_types = {
+                "function_declaration",
+                "function_definition",
+                "arrow_function",
+                "class_declaration",
+            }
             
             for node in nodes:
                 start_line = node.start_point[0] # 0-indexed
                 end_line = node.end_point[0]     # 0-indexed
                 
-                # Heuristic: Only fold if body is > 4 lines long
+                # Heuristic: Only fold if block is > 4 lines long
                 if (end_line - start_line) <= 4:
                     continue
 
@@ -414,9 +440,26 @@ class LocalTools:
                 if start_line <= last_fold_end_line:
                     continue
                 
-                # We fold from start+1 to end-1 (keeping the opening/closing braces visible)
+                # Default fold range: from the line after the opening to the
+                # line before the closing. This keeps the signature/braces.
                 fold_start = start_line + 1
                 fold_end = end_line - 1
+
+                # For the first large TS/JS component-like block, keep the tail
+                # (typically containing `return (...)` JSX) visible instead of
+                # folding it.
+                if (
+                    lang_name in ["typescript", "tsx", "javascript"]
+                    and not top_component_seen
+                    and node.type in component_node_types
+                ):
+                    top_component_seen = True
+                    # Do not fold the last `keep_tail_lines` lines of this block.
+                    candidate_end = end_line - keep_tail_lines
+                    if candidate_end <= fold_start:
+                        # Component is too small; skip folding entirely.
+                        continue
+                    fold_end = candidate_end
                 
                 if fold_start <= fold_end:
                     fold_ranges.append((fold_start, fold_end))

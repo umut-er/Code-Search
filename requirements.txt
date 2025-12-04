@@ -5,3 +5,5 @@ langchain-openai
 python-dotenv
 pydantic
 async
+tree-sitter
+tree-sitter-language-pack

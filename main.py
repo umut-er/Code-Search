@@ -10,6 +10,7 @@ from langchain_core.messages import HumanMessage
 # Import from src
 from src.local_tools import LocalTools
 from src.agent import build_graph
+from src.s2r_tool import generate_s2r
 
 load_dotenv()
 
@@ -43,12 +44,18 @@ async def run_interactive():
     
     # 1. Load Tools (The Full Suite)
     tools = [
+        # --- Code Navigation / Context Retrieval ---
         LocalTools.list_directory,      # Navigation
         LocalTools.read_file,           # Reading Content
         LocalTools.find_file,           # Fuzzy Filename Search 
         LocalTools.find_usage,          # Upward Traversal 
         LocalTools.read_file_skeleton,  # High-level structure
-        LocalTools.grep_text            # Lexical Search
+        LocalTools.grep_text,           # Lexical Search
+
+        # --- Bug → S2R Pipeline ---
+        # This tool takes a raw bug report + a set of relevant code paths
+        # and returns a JSON S2R script suitable for a browser agent.
+        generate_s2r,
     ]
     
     # 2. Build Graph
@@ -66,8 +73,10 @@ async def run_interactive():
     while True:
         try:
             user_input = input("User: ").strip()
-            if user_input.lower() in ["exit", "quit"]: break
-            if not user_input: continue
+            if user_input.lower() in ["exit", "quit"]:
+                break
+            if not user_input:
+                continue
             
             turn_count += 1
             trace_bucket = []
@@ -132,12 +141,35 @@ async def run_interactive():
                         })
 
                 elif kind == "on_tool_start":
-                    tool_input = data.get("input")
+                    tool_input = data.get("input") or {}
                     print(f"\n🛠️  Calling {name}...")
                     
                     # Console hints for specific tools
-                    if name == "find_file": print(f"    Searching: {tool_input.get('name_pattern')}")
-                    elif name == "grep_text": print(f"    Grepping: {tool_input.get('query')}")
+                    if name == "find_file":
+                        print(f"    Searching name_pattern={tool_input.get('name_pattern')!r} in path={tool_input.get('path')!r}")
+                    elif name == "grep_text":
+                        print(f"    Grepping query={tool_input.get('query')!r} in path={tool_input.get('path')!r}")
+                    elif name == "list_directory":
+                        print(f"    Listing directory path={tool_input.get('path')!r}")
+                    elif name == "read_file":
+                        print(
+                            f"    Reading file path={tool_input.get('path')!r} "
+                            f"lines={tool_input.get('start_line')}..{tool_input.get('end_line')}"
+                        )
+                    elif name == "read_file_skeleton":
+                        print(f"    Skeleton view for path={tool_input.get('path')!r}")
+                    elif name == "find_usage":
+                        print(
+                            f"    Finding usage of filename={tool_input.get('filename')!r} "
+                            f"in path={tool_input.get('path')!r}"
+                        )
+                    elif name == "generate_s2r":
+                        bug_preview = str(tool_input.get('bug_report', ''))[:80].replace("\n", " ")
+                        print(
+                            "    Generating S2R with code_paths="
+                            f"{tool_input.get('code_paths')!r} "
+                            f"for bug_report≈{bug_preview!r}"
+                        )
                     
                     trace_bucket.append({
                         "type": "tool_call",
@@ -163,7 +195,11 @@ async def run_interactive():
                     })
 
             # --- 3. END OF TURN SUMMARY ---
-            print(f"\n\n[Turn Stats] In: {turn_stats['tokens']['input']} | Out: {turn_stats['tokens']['output']} | Total: {turn_stats['tokens']['total']}")
+            print(
+                f"\n\n[Turn Stats] In: {turn_stats['tokens']['input']} | "
+                f"Out: {turn_stats['tokens']['output']} | "
+                f"Total: {turn_stats['tokens']['total']}"
+            )
             
             # Save Log
             logger.save_turn(turn_count, user_input, trace_bucket, turn_stats)
@@ -173,9 +209,37 @@ async def run_interactive():
             print("\nExiting...")
             break
         except Exception as e:
-            print(f"❌ Critical Error: {e}")
+            # Ensure we don't lose logs when an error (e.g., rate limit) occurs.
+            print(f"\n❌ Critical Error during Turn {turn_count}: {e}")
             import traceback
             traceback.print_exc()
+            try:
+                # Attach an explicit error entry to the trace and persist it.
+                error_entry = {
+                    "type": "error",
+                    "error": str(e),
+                    "timestamp": time.time(),
+                }
+                # trace_bucket / turn_stats may not exist if failure is very early,
+                # so guard with defaults.
+                if "trace_bucket" in locals():
+                    trace_bucket.append(error_entry)
+                else:
+                    trace_bucket = [error_entry]
+                if "turn_stats" not in locals():
+                    turn_stats = {
+                        "tokens": {"input": 0, "output": 0, "total": 0},
+                        "model": "unknown_model",
+                    }
+                if "user_input" not in locals():
+                    user_input = ""
+                logger.save_turn(turn_count, user_input, trace_bucket, turn_stats)
+                print(f"💾 Log saved for Turn {turn_count} (with error).\n")
+            except Exception:
+                # Last-resort: avoid crashing logger path as well.
+                pass
+            # Continue interactive loop so the user can try again later.
+            continue
 
 if __name__ == "__main__":
     asyncio.run(run_interactive())
