@@ -5,13 +5,14 @@ import time
 import json
 import datetime
 import glob
+import ast
 from typing import Set, List, Dict, Any
 from datasets import load_dataset
 from unidiff import PatchSet
 import pandas as pd
 from langchain_core.messages import HumanMessage
 
-# Imports
+# Imports (Assumed to exist in your environment)
 from src.local_tools import LocalTools
 from src.agent import build_graph
 
@@ -19,8 +20,6 @@ from src.agent import build_graph
 class BenchmarkLogger:
     def __init__(self, base_dir="./benchmark_logs"):
         self.base_dir = base_dir
-        # We don't create a run folder here anymore. 
-        # Folders are created per-task.
 
     def save_task_log(self, instance_id: str, data: Dict):
         """
@@ -49,13 +48,9 @@ class BenchmarkLogger:
 
     def _rotate_logs(self, task_dir: str, limit: int):
         """Deletes oldest files if count > limit."""
-        # Get all json files in the directory
         files = glob.glob(os.path.join(task_dir, "*.json"))
-        
-        # Sort by modification time (oldest first)
         files.sort(key=os.path.getmtime)
         
-        # Delete if we have too many
         while len(files) > limit:
             file_to_remove = files.pop(0)
             try:
@@ -66,7 +61,6 @@ class BenchmarkLogger:
 
 # --- HELPER: SUBPROCESS ---
 def run_command(args, cwd=None, description=""):
-    start = time.time()
     try:
         subprocess.run(
             args, 
@@ -79,9 +73,60 @@ def run_command(args, cwd=None, description=""):
         print(f" ❌ Failed to run: {' '.join(args)}")
         raise
 
-def get_gold_files(patch_text: str) -> Set[str]:
+# --- HELPER: FUNCTION GRANULARITY PARSER ---
+def get_gold_functions(patch_text: str, repo_path: str) -> Set[str]:
+    """
+    Parses the patch and repo to return a set of 'filepath::function_name' strings
+    identifying which functions were actually modified by the gold patch.
+    """
+    gold_funcs = set()
     patch = PatchSet(patch_text)
-    return {p.path for p in patch}
+
+    for patched_file in patch:
+        if patched_file.is_removed_file: continue
+        
+        # We only support function granularity for Python here
+        if not patched_file.path.endswith(".py"):
+            gold_funcs.add(patched_file.path)
+            continue
+
+        full_path = os.path.join(repo_path, patched_file.path)
+        if not os.path.exists(full_path): continue
+
+        try:
+            # Parse the file state at base_commit
+            with open(full_path, "r", encoding="utf-8") as f:
+                tree = ast.parse(f.read())
+
+            # Identify which lines are changed in the SOURCE (base) file
+            changed_lines = set()
+            for hunk in patched_file:
+                # hunk.source_start is the starting line number in the original file
+                for i in range(hunk.source_start, hunk.source_start + hunk.source_length):
+                    changed_lines.add(i)
+
+            # Map changed lines to function definitions
+            found_in_file = False
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    # inclusive range of the function body
+                    func_range = range(node.lineno, node.end_lineno + 1)
+                    
+                    # If the patch touches this function
+                    if any(line in func_range for line in changed_lines):
+                        gold_funcs.add(f"{patched_file.path}::{node.name}")
+                        found_in_file = True
+            
+            # If changes were outside a function (module level or globals), track the file
+            if not found_in_file and changed_lines:
+                gold_funcs.add(f"{patched_file.path}::__global__")
+
+        except Exception as e:
+            # Fallback if parsing fails
+            print(f"      ⚠️ AST Parse Error for {patched_file.path}: {e}")
+            gold_funcs.add(patched_file.path)
+            
+    return gold_funcs
 
 # --- 2. MODIFIED SESSION: Captures Tokens & Model Info ---
 async def run_retrieval_session(repo_path: str, issue_text: str, trace_bucket: list = None) -> Set[str]:
@@ -101,7 +146,7 @@ async def run_retrieval_session(repo_path: str, issue_text: str, trace_bucket: l
         ]
         
         graph = build_graph(tools)
-        config = {"configurable": {"thread_id": "eval"}, "recursion_limit": 15}
+        config = {"configurable": {"thread_id": "eval"}, "recursion_limit": 25}
         
         async for event in graph.astream_events(
             {"messages": [HumanMessage(content=f"Locate the code responsible for: {issue_text}")]},
@@ -115,18 +160,12 @@ async def run_retrieval_session(repo_path: str, issue_text: str, trace_bucket: l
             if kind == "on_chat_model_end":
                 output = data.get("output")
                 if output:
-                    # --- 1. UPDATED: LangChain v1 Standardized Usage ---
-                    # usage_metadata is the new standard (v0.3+ / v1.0)
-                    # It normalizes keys to: input_tokens, output_tokens, total_tokens
                     usage = getattr(output, "usage_metadata", {}) or {}
 
-                    # Fallback for older models/providers not yet adhering to v1 standard
                     if not usage and hasattr(output, "response_metadata"):
                         meta = output.response_metadata
                         usage = meta.get("token_usage") or meta.get("usage") or {}
 
-                    # --- 2. Extract Counts (Robustly) ---
-                    # v1 uses "input_tokens", OpenAI legacy uses "prompt_tokens"
                     input_tokens = usage.get("input_tokens") or usage.get("prompt_tokens") or 0
                     output_tokens = usage.get("output_tokens") or usage.get("completion_tokens") or 0
                     total = usage.get("total_tokens") or (input_tokens + output_tokens)
@@ -135,9 +174,7 @@ async def run_retrieval_session(repo_path: str, issue_text: str, trace_bucket: l
                     total_tokens["output"] += output_tokens
                     total_tokens["total"] += total
                     
-                    # --- 3. Capture Model Name ---
                     if model_signature == "unknown_model":
-                         # Try v1 standard .name or fallback to metadata
                          model_signature = getattr(output, "name", None) or \
                                            output.response_metadata.get("model_name") or \
                                            output.response_metadata.get("model") or \
@@ -168,7 +205,6 @@ async def run_retrieval_session(repo_path: str, issue_text: str, trace_bucket: l
                         "timestamp": time.time()
                     })
             
-            # ORIGINAL CONSOLE LOGGING
             if kind == "on_tool_start":
                 tool_name = event["name"]
                 if tool_name == "read_file":
@@ -189,8 +225,6 @@ async def run_retrieval_session(repo_path: str, issue_text: str, trace_bucket: l
             print(f"      ❌ Agent Error: {e}")
     finally:
         os.chdir(original_cwd)
-        # Inject the collected stats into the trace bucket as a hidden "meta" item
-        # We will extract this in the main loop before saving.
         if trace_bucket is not None:
             trace_bucket.append({
                 "type": "__META_STATS__", 
@@ -234,7 +268,9 @@ async def evaluate_swe_lite(limit=5):
             run_command(["git", "clean", "-fdx"], cwd=instance_path)
             run_command(["git", "checkout", base_commit], cwd=instance_path)
             
-            gold_files = get_gold_files(row['patch'])
+            # --- UPDATED: Calculate Function-Level Targets ---
+            gold_targets = get_gold_functions(row['patch'], instance_path)
+            print(f"      🎯 Targets: {len(gold_targets)} functions identified")
 
             start_time = time.time()
             agent_files_raw = await run_retrieval_session(
@@ -245,20 +281,27 @@ async def evaluate_swe_lite(limit=5):
             duration = time.time() - start_time
             
             # --- PROCESS STATS ---
-            # Extract the hidden metadata we pushed at the end of the session
             run_stats = {"tokens": {}, "model": "unknown"}
             if trace_history and trace_history[-1].get("type") == "__META_STATS__":
-                meta = trace_history.pop() # Remove it from the history list
+                meta = trace_history.pop() 
                 run_stats = meta
             
+            # --- UPDATED: Evaluate Matches (Function Level) ---
             agent_files = {f.lstrip("./") for f in agent_files_raw}
-            matches = gold_files.intersection(agent_files)
+            
+            matches = []
+            for target in gold_targets:
+                # Target format: "path/to/file.py::func_name"
+                # Check if the file containing the function was read by the agent
+                target_file = target.split("::")[0]
+                if target_file in agent_files:
+                    matches.append(target)
+            
             success = len(matches) > 0
             
-            print(f"   {'✅' if success else '❌'} Result: {len(matches)}/{len(gold_files)} | Tokens: {run_stats['tokens'].get('total', 0)}")
+            print(f"   {'✅' if success else '❌'} Result: {len(matches)}/{len(gold_targets)} | Tokens: {run_stats['tokens'].get('total', 0)}")
 
-            # --- CONSTRUCT LOG (Ordered) ---
-            # We explicitly construct the dictionary to keep LLM signature at top
+            # --- CONSTRUCT LOG ---
             log_data = {
                 "llm_signature": {
                     "model": run_stats["model"],
@@ -272,11 +315,13 @@ async def evaluate_swe_lite(limit=5):
                 },
                 "task": {
                     "problem_statement": row['problem_statement'],
-                    "gold_files": list(gold_files),
+                    "gold_granularity": "function",
+                    "gold_targets": list(gold_targets),
                     "base_commit": row['base_commit']
                 },
                 "agent_output": {
                     "files_found": list(agent_files),
+                    "matches_found": matches,
                     "history": trace_history
                 }
             }

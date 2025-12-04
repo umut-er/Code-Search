@@ -1,6 +1,7 @@
 import os
 import subprocess
 import json
+import difflib
 
 from langchain_core.tools import StructuredTool, tool
 
@@ -10,7 +11,6 @@ from tree_sitter_language_pack import get_language, get_parser
 class LocalTools:
     """
     Native Python tools for File I/O and Lexical Search.
-    This replaces the buggy Filesystem MCP.
     """
 
     @tool("get_code_symbols")
@@ -181,6 +181,293 @@ class LocalTools:
             return "\n".join(sorted(formatted))
         except Exception as e:
             return f"Error listing directory: {str(e)}"
+
+    @tool("find_file")
+    def find_file(name_pattern: str, path: str = ".") -> str:
+        """
+        Fuzzy searches for files by filename (not content). 
+        Useful when you know the approximate name of a file (e.g., 'auth' -> 'Authentication.ts').
+        
+        Args:
+            name_pattern: The partial name or fuzzy guess of the file.
+            path: Root directory to start search (default is current).
+        """
+        try:
+            results = []
+            # Common web dev folders to ignore to speed up search
+            exclude_dirs = {
+                "node_modules", ".git", ".next", "dist", "build", 
+                "coverage", ".vscode", "__pycache__"
+            }
+            
+            # 1. First pass: exact substring matching (fastest/most accurate)
+            # 2. Second pass: fuzzy matching if substring fails
+            
+            candidates = []
+            
+            for root, dirs, files in os.walk(path):
+                # Modify dirs in-place to skip ignored directories
+                dirs[:] = [d for d in dirs if d not in exclude_dirs]
+                
+                for file in files:
+                    full_path = os.path.join(root, file)
+                    candidates.append(full_path)
+                    
+                    # Case-insensitive substring match
+                    if name_pattern.lower() in file.lower():
+                        results.append(full_path)
+
+            # If we found exact substring matches, return those (limit 10)
+            if results:
+                results.sort(key=len) # Shortest paths first often meant "source" vs "compiled"
+                return "\n".join(results[:10])
+            
+            # If no substring match, try fuzzy matching on filenames
+            # This helps if the agent types "login_modal" but file is "LoginModal.tsx"
+            filenames = [os.path.basename(c) for c in candidates]
+            close_matches = difflib.get_close_matches(name_pattern, filenames, n=5, cutoff=0.6)
+            
+            fuzzy_results = []
+            if close_matches:
+                for match in close_matches:
+                    # Find the full path for the matched filename
+                    for c in candidates:
+                        if os.path.basename(c) == match:
+                            fuzzy_results.append(c)
+            
+            if not fuzzy_results:
+                return f"No files found matching '{name_pattern}'."
+            
+            return "No exact matches. Did you mean:\n" + "\n".join(fuzzy_results[:5])
+
+        except Exception as e:
+            return f"Error finding file: {str(e)}"
+
+    @tool("find_usage")
+    def find_usage(filename: str, path: str = ".") -> str:
+        """
+        Finds where a specific file or component is used in the codebase.
+        This is useful for tracing a component upwards to find the Page or URL that renders it.
+        
+        Args:
+            filename: The name of the file/component to find usages for (e.g., "SubmitButton.tsx" or just "SubmitButton").
+            path: The root directory to search in.
+        """
+        try:
+            # Check for ripgrep
+            if subprocess.call(["which", "rg"], stdout=subprocess.DEVNULL) != 0:
+                return "Error: 'rg' (ripgrep) is not installed."
+
+            # 1. Normalize the name. 
+            # If input is "SubmitButton.tsx", we want to search for "SubmitButton"
+            base_name = os.path.splitext(os.path.basename(filename))[0]
+            
+            # 2. Construct specific Regex patterns for TypeScript/Web usage
+            # Pattern A: Import statements (e.g., import { X } from './X')
+            # Pattern B: JSX Usage (e.g., <X /> or <X)
+            # We combine them with OR (|)
+            # We look for the filename in the import path OR the component name in JSX tags
+            pattern = f"from ['\"].*{base_name}['\"]|<{base_name}(\\s|/|>)"
+            
+            command = [
+                "rg", 
+                "-n", 
+                "--json", 
+                "-e", pattern, 
+                path,
+                "-g", "!node_modules", # Ignore node_modules
+                "-g", "!dist",         # Ignore build output
+                "-g", "!build"
+            ]
+            
+            result = subprocess.run(command, capture_output=True, text=True)
+            
+            matches = []
+            seen_files = set()
+
+            for line in result.stdout.splitlines():
+                try:
+                    data = json.loads(line)
+                    if data.get("type") == "match":
+                        file_path = data["data"]["path"]["text"]
+                        
+                        # Don't list the file itself as a usage of itself
+                        if os.path.basename(file_path) == os.path.basename(filename):
+                            continue
+                            
+                        line_num = data["data"]["line_number"]
+                        line_text = data["data"]["lines"]["text"].strip()
+                        
+                        # To keep context manageable, we try to group by file if there are many matches
+                        matches.append(f"{file_path}:{line_num} | {line_text}")
+                        seen_files.add(file_path)
+                except:
+                    continue
+
+            if not matches:
+                return f"No usages found for '{base_name}'. It might be unused or dynamically imported."
+
+            # Formatting logic: If too many matches, summarize
+            if len(matches) > 15:
+                unique_files_list = "\n".join(list(seen_files)[:10])
+                return (f"Found {len(matches)} usages in {len(seen_files)} files. "
+                        f"Here are the files where it appears:\n{unique_files_list}\n"
+                        f"(Use read_file on these to see specific implementation)")
+            
+            return "\n".join(matches)
+
+        except Exception as e:
+            return f"Error finding usage: {str(e)}"
+
+    @tool("read_file_skeleton")
+    def read_file_skeleton(path: str) -> str:
+        """
+        Reads a file and returns a skeleton view by collapsing function/class bodies.
+        Useful for understanding high-level file structure without reading every line of code.
+        
+        Args:
+            path: Relative path to the file.
+        """
+        if not os.path.exists(path):
+            return f"Error: File not found at {path}"
+
+        # 1. Detect Language
+        ext = os.path.splitext(path)[1].lower()
+        lang_map = {
+            ".py": "python", ".ts": "typescript", ".tsx": "tsx",
+            ".js": "javascript", ".jsx": "javascript", 
+            ".go": "go", ".rs": "rust", ".c": "c", ".cpp": "cpp"
+        }
+        lang_name = lang_map.get(ext)
+        
+        # Fallback: simple read if language not supported
+        if not lang_name:
+             return LocalTools.read_file(path, end_line=100) + "\n... (Unsupported language for skeleton, showing first 100 lines)"
+
+        try:
+            parser = get_parser(lang_name)
+            language = get_language(lang_name)
+            
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                code = f.read()
+            
+            tree = parser.parse(bytes(code, "utf8"))
+            
+            # 2. Define queries to find foldable blocks
+            # We target function bodies, class bodies, and method bodies
+            if lang_name in ["typescript", "tsx", "javascript"]:
+                query_scm = """
+                (function_declaration body: (_) @body)
+                (method_definition body: (_) @body)
+                (arrow_function body: (_) @body)
+                (class_declaration body: (_) @body)
+                """
+            elif lang_name == "python":
+                query_scm = """
+                (function_definition body: (_) @body)
+                (class_definition body: (_) @body)
+                """
+            elif lang_name == "go":
+                query_scm = """
+                (function_declaration body: (_) @body)
+                (method_declaration body: (_) @body)
+                """
+            elif lang_name == "rust":
+                query_scm = """
+                (function_item body: (_) @body)
+                (impl_item body: (_) @body)
+                """
+            else:
+                query_scm = "(function_definition body: (_) @body)"
+
+            # 3. Execute Query
+            query = Query(language, query_scm)
+            cursor = QueryCursor(query)
+            captures_obj = cursor.captures(tree.root_node)
+            
+            # Normalize captures (v0.22+ returns dict, older returns list)
+            nodes = []
+            if isinstance(captures_obj, dict):
+                for name, captured_nodes in captures_obj.items():
+                    nodes.extend(captured_nodes)
+            else:
+                nodes = [node for node, name in captures_obj]
+
+            # 4. Filter and Sort Folds
+            # We sort by start line to handle nesting logic
+            nodes.sort(key=lambda n: n.start_point[0])
+            
+            fold_ranges = []
+            last_fold_end_line = -1
+            
+            for node in nodes:
+                start_line = node.start_point[0] # 0-indexed
+                end_line = node.end_point[0]     # 0-indexed
+                
+                # Heuristic: Only fold if body is > 4 lines long
+                if (end_line - start_line) <= 4:
+                    continue
+
+                # NESTING FIX: 
+                # If this new node starts BEFORE the last folded node ended, 
+                # it is a child/nested node. We skip it to keep the parent folded.
+                if start_line <= last_fold_end_line:
+                    continue
+                
+                # We fold from start+1 to end-1 (keeping the opening/closing braces visible)
+                fold_start = start_line + 1
+                fold_end = end_line - 1
+                
+                if fold_start <= fold_end:
+                    fold_ranges.append((fold_start, fold_end))
+                    last_fold_end_line = end_line # Update boundary
+
+            # 5. Create a map for O(1) lookups during reconstruction
+            # Map: line_index -> (is_start_of_fold, fold_length)
+            hidden_lines = set()
+            fold_start_map = {}
+            
+            for start, end in fold_ranges:
+                count = end - start + 1
+                fold_start_map[start] = count
+                for i in range(start, end + 1):
+                    hidden_lines.add(i)
+
+            # 6. Reconstruct the file
+            lines = code.splitlines()
+            result = []
+            
+            i = 0
+            while i < len(lines):
+                line_num_display = i + 1 # 1-based for display
+                
+                if i in hidden_lines:
+                    # Only print the placeholder once per fold
+                    if i in fold_start_map:
+                        count = fold_start_map[i]
+                        
+                        # INDENTATION FIX:
+                        # Grab indentation from the PREVIOUS line (the function signature)
+                        # so the "// ... folded" comment aligns nicely.
+                        prev_indent = ""
+                        if i > 0:
+                            prev_line = lines[i-1]
+                            prev_indent = prev_line[:len(prev_line) - len(prev_line.lstrip())]
+                        
+                        # Add a distinct marker for the LLM
+                        result.append(f" ... | {prev_indent}// ... logic folded ({count} lines) ...")
+                    
+                    # Skip the actual content
+                    i += 1
+                else:
+                    result.append(f"{line_num_display:4d} | {lines[i]}")
+                    i += 1
+            
+            return "\n".join(result)
+
+        except Exception as e:
+            import traceback
+            return f"Error generating skeleton: {e}\n{traceback.format_exc()}"
 
     @tool("search_code_lexical")
     def search_code(query: str, path: str = ".", context_lines: int = 1) -> str:

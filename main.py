@@ -53,7 +53,7 @@ async def run_interactive():
 
         # 3. Build Graph
         graph = build_graph(tools)
-        config = {"configurable": {"thread_id": "cli_session"}}
+        config = {"configurable": {"thread_id": "cli_session"}, "recursion_limit": 25}
 
         print("\n🤖 Ready. Type 'exit' to quit.")
         
