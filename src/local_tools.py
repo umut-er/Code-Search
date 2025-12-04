@@ -322,8 +322,8 @@ class LocalTools:
     @tool("read_file_skeleton")
     def read_file_skeleton(path: str) -> str:
         """
-        Reads a file and returns a skeleton view by collapsing function/class bodies.
-        Useful for understanding high-level file structure without reading every line of code.
+        Reads a JS/TS file and returns a skeleton view.
+        It folds logic bodies (hooks, handlers) but keeps the 'return (...)' JSX visible.
         
         Args:
             path: Relative path to the file.
@@ -331,18 +331,14 @@ class LocalTools:
         if not os.path.exists(path):
             return f"Error: File not found at {path}"
 
-        # 1. Detect Language
+        # 1. Strict JS/TS Filter
         ext = os.path.splitext(path)[1].lower()
-        lang_map = {
-            ".py": "python", ".ts": "typescript", ".tsx": "tsx",
-            ".js": "javascript", ".jsx": "javascript", 
-            ".go": "go", ".rs": "rust", ".c": "c", ".cpp": "cpp"
-        }
-        lang_name = lang_map.get(ext)
+        valid_exts = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
         
-        # Fallback: simple read if language not supported
-        if not lang_name:
-             return LocalTools.read_file(path, end_line=100) + "\n... (Unsupported language for skeleton, showing first 100 lines)"
+        if ext not in valid_exts:
+            return f"Error: Skeleton view only supports JS/TS files. Use read_file for {ext}."
+
+        lang_name = "typescript" if ext in [".ts", ".tsx"] else "javascript"
 
         try:
             parser = get_parser(lang_name)
@@ -353,157 +349,95 @@ class LocalTools:
             
             tree = parser.parse(bytes(code, "utf8"))
             
-            # 2. Define queries to find foldable blocks
-            # We target function bodies, class bodies, and method bodies.
-            # For TS/JS React files we will additionally fold large top-level
-            # style/constant blocks (e.g. styled-components) via a separate pass.
-            if lang_name in ["typescript", "tsx", "javascript"]:
-                query_scm = """
-                (function_declaration body: (_) @body)
-                (method_definition body: (_) @body)
-                (arrow_function body: (_) @body)
-                (class_declaration body: (_) @body)
-                """
-            elif lang_name == "python":
-                query_scm = """
-                (function_definition body: (_) @body)
-                (class_definition body: (_) @body)
-                """
-            elif lang_name == "go":
-                query_scm = """
-                (function_declaration body: (_) @body)
-                (method_declaration body: (_) @body)
-                """
-            elif lang_name == "rust":
-                query_scm = """
-                (function_item body: (_) @body)
-                (impl_item body: (_) @body)
-                """
-            else:
-                query_scm = "(function_definition body: (_) @body)"
+            # 2. Query for Function/Class Bodies
+            query_scm = """
+            (function_declaration body: (_) @body)
+            (method_definition body: (_) @body)
+            (arrow_function body: (_) @body)
+            (class_declaration body: (_) @body)
+            """
 
-            # 3. Execute Query
+            # 3. Execute Query (Fixed for tree-sitter v0.22+)
             query = Query(language, query_scm)
             cursor = QueryCursor(query)
             captures_obj = cursor.captures(tree.root_node)
             
-            # Normalize captures (v0.22+ returns dict, older returns list)
+            # Normalize captures
             nodes = []
             if isinstance(captures_obj, dict):
-                for name, captured_nodes in captures_obj.items():
+                for _, captured_nodes in captures_obj.items():
                     nodes.extend(captured_nodes)
             else:
-                nodes = [node for node, name in captures_obj]
+                nodes = [node for node, _ in captures_obj]
 
-            # 3. For TS/JS: also fold large top-level constant/style blocks
-            # (e.g. styled-components). We treat multi-line lexical/variable
-            # declarations as foldable, keeping only the first line visible.
-            if lang_name in ["typescript", "tsx", "javascript"]:
-                program = tree.root_node
-                for child in program.children:
-                    if child.type in ("lexical_declaration", "variable_declaration"):
-                        start_line = child.start_point[0]
-                        end_line = child.end_point[0]
-                        if (end_line - start_line) > 2:
-                            nodes.append(child)
+            # 4. Optional: Fold large top-level variables (Styled Components, Configs)
+            program = tree.root_node
+            for child in program.children:
+                if child.type in ("lexical_declaration", "variable_declaration"):
+                    if (child.end_point[0] - child.start_point[0]) > 4:
+                        nodes.append(child)
 
-            # 4. Filter and Sort Folds
-            # We sort by start line to handle nesting logic
+            # 5. Process Folds
             nodes.sort(key=lambda n: n.start_point[0])
-            
             fold_ranges = []
             last_fold_end_line = -1
 
-            # Special handling: for TS/JSX files, we want the RETURN JSX of the
-            # top-level component to remain visible. We approximate this by not
-            # folding the last N lines of the FIRST large function/class in the file.
-            keep_tail_lines = 12
-            top_component_seen = False
-            component_node_types = {
-                "function_declaration",
-                "function_definition",
-                "arrow_function",
-                "class_declaration",
-            }
-            
             for node in nodes:
-                start_line = node.start_point[0] # 0-indexed
-                end_line = node.end_point[0]     # 0-indexed
+                start_line = node.start_point[0]
+                end_line = node.end_point[0]
                 
-                # Heuristic: Only fold if block is > 4 lines long
-                if (end_line - start_line) <= 4:
-                    continue
-
-                # NESTING FIX: 
-                # If this new node starts BEFORE the last folded node ended, 
-                # it is a child/nested node. We skip it to keep the parent folded.
-                if start_line <= last_fold_end_line:
-                    continue
+                # Skip tiny blocks (< 5 lines) or nested blocks
+                if (end_line - start_line) < 5: continue
+                if start_line <= last_fold_end_line: continue
                 
-                # Default fold range: from the line after the opening to the
-                # line before the closing. This keeps the signature/braces.
                 fold_start = start_line + 1
                 fold_end = end_line - 1
 
-                # For the first large TS/JS component-like block, keep the tail
-                # (typically containing `return (...)` JSX) visible instead of
-                # folding it.
-                if (
-                    lang_name in ["typescript", "tsx", "javascript"]
-                    and not top_component_seen
-                    and node.type in component_node_types
-                ):
-                    top_component_seen = True
-                    # Do not fold the last `keep_tail_lines` lines of this block.
-                    candidate_end = end_line - keep_tail_lines
-                    if candidate_end <= fold_start:
-                        # Component is too small; skip folding entirely.
-                        continue
-                    fold_end = candidate_end
-                
-                if fold_start <= fold_end:
-                    fold_ranges.append((fold_start, fold_end))
-                    last_fold_end_line = end_line # Update boundary
+                # --- SMART LOGIC: FIND RETURN STATEMENT ---
+                # If we are inside a function body, look for the JSX return.
+                if node.type == "statement_block":
+                    return_node = None
+                    # Search children for the LAST return statement
+                    for child in node.children:
+                        if child.type == "return_statement":
+                            return_node = child
+                    
+                    if return_node:
+                        # Fold everything up to the line BEFORE the return
+                        candidate_end = return_node.start_point[0] - 1
+                        if candidate_end > fold_start:
+                            fold_end = candidate_end
 
-            # 5. Create a map for O(1) lookups during reconstruction
-            # Map: line_index -> (is_start_of_fold, fold_length)
+                if fold_start < fold_end:
+                    fold_ranges.append((fold_start, fold_end))
+                    last_fold_end_line = end_line 
+
+            # 6. Reconstruct File
+            # Map: line_index -> lines_hidden_count
+            fold_map = {start: (end - start + 1) for start, end in fold_ranges}
             hidden_lines = set()
-            fold_start_map = {}
-            
             for start, end in fold_ranges:
-                count = end - start + 1
-                fold_start_map[start] = count
                 for i in range(start, end + 1):
                     hidden_lines.add(i)
 
-            # 6. Reconstruct the file
             lines = code.splitlines()
             result = []
-            
             i = 0
+            
             while i < len(lines):
-                line_num_display = i + 1 # 1-based for display
-                
                 if i in hidden_lines:
-                    # Only print the placeholder once per fold
-                    if i in fold_start_map:
-                        count = fold_start_map[i]
-                        
-                        # INDENTATION FIX:
-                        # Grab indentation from the PREVIOUS line (the function signature)
-                        # so the "// ... folded" comment aligns nicely.
+                    if i in fold_map:
+                        count = fold_map[i]
+                        # Calculate indentation from previous line
                         prev_indent = ""
                         if i > 0:
-                            prev_line = lines[i-1]
-                            prev_indent = prev_line[:len(prev_line) - len(prev_line.lstrip())]
+                            prev = lines[i-1]
+                            prev_indent = prev[:len(prev) - len(prev.lstrip())]
                         
-                        # Add a distinct marker for the LLM
                         result.append(f" ... | {prev_indent}// ... logic folded ({count} lines) ...")
-                    
-                    # Skip the actual content
                     i += 1
                 else:
-                    result.append(f"{line_num_display:4d} | {lines[i]}")
+                    result.append(f"{i+1:4d} | {lines[i]}")
                     i += 1
             
             return "\n".join(result)

@@ -51,11 +51,6 @@ async def run_interactive():
         LocalTools.find_usage,          # Upward Traversal 
         LocalTools.read_file_skeleton,  # High-level structure
         LocalTools.grep_text,           # Lexical Search
-
-        # --- Bug → S2R Pipeline ---
-        # This tool takes a raw bug report + a set of relevant code paths
-        # and returns a JSON S2R script suitable for a browser agent.
-        generate_s2r,
     ]
     
     # 2. Build Graph
@@ -206,39 +201,54 @@ async def run_interactive():
             print(f"💾 Log saved for Turn {turn_count}.\n")
 
         except KeyboardInterrupt:
-            print("\nExiting...")
-            break
+            print("\n\n⚠️  Interrupted by user!")
+            
+            # FIX: Check if we have pending data to save
+            if 'trace_bucket' in locals() and trace_bucket:
+                # Add a marker that the stream was cut off
+                trace_bucket.append({
+                    "type": "interrupt",
+                    "timestamp": time.time(),
+                    "note": "Session terminated by KeyboardInterrupt"
+                })
+                
+                # Save whatever we have
+                logger.save_turn(turn_count, user_input, trace_bucket, turn_stats)
+                print(f"💾 Partial log saved for Turn {turn_count} before exiting.")
+            
+            break # Now safely exit the loop
+
         except Exception as e:
-            # Ensure we don't lose logs when an error (e.g., rate limit) occurs.
             print(f"\n❌ Critical Error during Turn {turn_count}: {e}")
             import traceback
             traceback.print_exc()
-            try:
-                # Attach an explicit error entry to the trace and persist it.
-                error_entry = {
-                    "type": "error",
-                    "error": str(e),
-                    "timestamp": time.time(),
-                }
-                # trace_bucket / turn_stats may not exist if failure is very early,
-                # so guard with defaults.
-                if "trace_bucket" in locals():
-                    trace_bucket.append(error_entry)
-                else:
-                    trace_bucket = [error_entry]
-                if "turn_stats" not in locals():
-                    turn_stats = {
-                        "tokens": {"input": 0, "output": 0, "total": 0},
-                        "model": "unknown_model",
-                    }
-                if "user_input" not in locals():
-                    user_input = ""
-                logger.save_turn(turn_count, user_input, trace_bucket, turn_stats)
-                print(f"💾 Log saved for Turn {turn_count} (with error).\n")
-            except Exception:
-                # Last-resort: avoid crashing logger path as well.
-                pass
-            # Continue interactive loop so the user can try again later.
+
+            # 1. Capture the error in the trace so the log explains the crash
+            error_entry = {
+                "type": "error",
+                "error": str(e),
+                "timestamp": time.time(),
+                "note": "Session crashed due to exception"
+            }
+            
+            # Guard in case error happens before trace_bucket is initialized
+            if 'trace_bucket' in locals():
+                trace_bucket.append(error_entry)
+            else:
+                trace_bucket = [error_entry]
+
+            # 2. EMERGENCY SAVE
+            # Guard in case stats weren't initialized
+            if 'turn_stats' not in locals():
+                turn_stats = {"tokens": {}, "model": "error"}
+                
+            logger.save_turn(turn_count, user_input, trace_bucket, turn_stats)
+            print(f"💾 Emergency Log saved for Turn {turn_count}. Check this file to debug the loop!")
+            
+            # 3. Optional: formatting for the user to understand what happened
+            if "RecursionLimit" in str(e):
+                print("\n⚠️  Recursion Limit Hit: The agent took too many steps (30+) without finishing.")
+            
             continue
 
 if __name__ == "__main__":
