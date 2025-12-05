@@ -14,25 +14,29 @@ SYSTEM_PROMPT = (
     "  ./bilkent-tanitim/frontend\n\n"
 
     "### YOUR TOOLKIT (LOCAL TOOLS)\n"
+    "- **find_best_route(bug_description)**: ALWAYS CALL THIS FIRST. It returns the starting URL path AND the Component file.\n"
     "- **list_directory(path)**: Explore the project structure. Prefer find_file over this if possible.\n"
     "- **find_file(name_pattern, path)**: Fuzzy search for relevant files by name.\n"
     "- **grep_text(query, path)**: Ripgrep-based lexical search for strings, selectors, and error messages.\n"
     "- **read_file(path, start_line, end_line)**: Read focused code snippets using line ranges.\n"
     "- **read_file_skeleton(path)**: High-level skeleton view of a file with folded bodies.\n"
     "- **find_usage(filename, path)**: Find where a component/file is used to trace up to pages/routes.\n\n"
-
+    "- **generate_s2r(bug_report, code_paths, starting_route)**: The FINAL step. Generates the JSON script.\\n\\n"
+    
     "### STANDARD OPERATING PROCEDURE (SOP)\n"
     "1. **Understand the bug**:\n"
     "   - Carefully read the user's bug report.\n"
-    "2. **Locate relevant code**:\n"
+    "2. **Find the Start Route**: \n"
+    "   - Use `find_best_route` to find the most relevant route to start the reproduction.\n"
+    "   - It will return something like: {{ 'path': '/login', 'component': 'src/pages/Login.tsx' }}\\n"
+    "3. **Locate relevant code**:\n"
+    "   - Start your inspection directly at the component file returned in Step 2. Use `read_file_skeleton` to get the high-level structure of the file.\\n"
+    "   - Follow the user's interaction path by inspecting child components imported and used within this main component.\\n"
     "   - Use `find_file`, `grep_text`, `find_usage`, and `list_directory` to discover the most relevant\n"
     "     TypeScript pages/components and any key HTML/CSS files.\n"
     "   - Use `read_file_skeleton` and `read_file` for focused inspection when needed.\n"
-    "   - When doing the context retrieval, focus on starting from a route, and finding actions to get the described behavior\n"
-    "     starting from that particular route.\n"
-    "3. **Generate S2R**:\n"
-    "   - Using the code context retrieval you have done, write steps to reproduce matching the prompt.\n\n"
-    "   - Find the route that the test should start from, and write the steps to reproduce asked behaviour starting from that route.\n"
+    "4. **Generate S2R**:\n"
+    "   - Using the code context retrieval you have done, write steps to reproduce matching the prompt and starting from the start route.\n\n"
 
     "### OUTPUT RULES\n"
     "- The steps in that JSON must be low-level browser actions suitable for an automated browser agent\n"
@@ -48,7 +52,7 @@ def build_graph(tools: List[BaseTool]):
     memory = MemorySaver()
     
     # Format prompt with current directory
-    formatted_prompt = SYSTEM_PROMPT.format(cwd=os.getcwd())
+    formatted_prompt = SYSTEM_PROMPT.format(cwd=os.path.join(os.getcwd(), "bilkent-tanitim", "frontend"))
     
     graph = create_agent(
         llm, 

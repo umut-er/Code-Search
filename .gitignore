@@ -5,3 +5,7 @@ benchmark_scratch
 benchmark_logs
 interactive_logs
 bilkent-tanitim
+venv
+.venv
+route_discovery_logs
+.DS_Store

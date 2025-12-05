@@ -503,3 +503,62 @@ class LocalTools:
             
         except Exception as e:
             return f"Search execution error: {str(e)}"
+
+    @tool("find_best_route")
+    def find_best_route(bug_description: str) -> str:
+        """
+        Decides the best starting point for reproducing a bug by analyzing 'routes.json'.
+        
+        Args:
+            bug_description: The text describing the bug.
+            
+        Returns:
+            A JSON string containing the 'path' and 'component'.
+            Example: '{"path": "/login", "component": "src/pages/Login.tsx"}'
+        """
+        routes_path = "routes.json"
+        
+        if not os.path.exists(routes_path):
+            return json.dumps({"path": "/", "component": None, "error": "routes.json not found"})
+
+        try:
+            with open(routes_path, "r", encoding="utf-8") as f:
+                routes = json.load(f)
+        except Exception:
+            return json.dumps({"path": "/", "component": None})
+
+        if not routes:
+            return json.dumps({"path": "/", "component": None})
+
+        # Prepare context for LLM
+        routes_text = "\\n".join([f"- Path: {r.get('path')} | Component: {r.get('component')}" for r in routes])
+
+        client = OpenAI()
+        
+        prompt = f"""
+            You are a Senior Frontend Software Engineer and Route Selector.
+            Here are the available routes in the application:
+            {routes_text}
+
+            BUG REPORT:
+            {bug_description}
+
+            TASK:
+            Select the single most relevant route that is most likely to reproduce the bug to start the reproduction. If the bug happens on the login page, choose '/login'.
+            Return a JSON object with "path" and "component".
+
+            Example Output:
+            {{ "path": "/dashboard", "component": "src/pages/Dashboard.tsx" }}
+        """
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                response_format={"type": "json_object"}
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"Error in find_best_route: {e}")
+            return json.dumps({"path": "/", "component": None})

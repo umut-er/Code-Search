@@ -9,7 +9,7 @@ from enhancement.src.reproduction_generator import ReproductionGenerator
 
 
 @tool("generate_s2r")
-def generate_s2r(bug_report: str, code_paths: str) -> str:
+def generate_s2r(bug_report: str, code_paths: str, starting_route: str ="/") -> str:
     """
     Generate a browser-ready Steps-to-Reproduce (S2R) JSON object.
 
@@ -95,7 +95,7 @@ def generate_s2r(bug_report: str, code_paths: str) -> str:
 
     # --- 4. Generate the automation-ready S2R JSON ---
     generator = ReproductionGenerator()
-    s2r_payload = generator.generate_steps(structured_bug, code_files)
+    s2r_payload = generator.generate_steps(structured_bug, code_files, starting_route)
 
     # Ensure we always return a JSON string, even on failure.
     if s2r_payload is None:

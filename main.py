@@ -51,6 +51,7 @@ async def run_interactive():
         LocalTools.find_usage,          # Upward Traversal 
         LocalTools.read_file_skeleton,  # High-level structure
         LocalTools.grep_text,           # Lexical Search
+        LocalTools.find_best_route,     # Route Selection
     ]
     
     # 2. Build Graph

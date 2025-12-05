@@ -32,7 +32,7 @@ class ReproductionGenerator:
         with open(path, "r", encoding="utf-8") as f:
             return f.read().strip()
 
-    def _construct_prompt(self, bug_data, code_files):
+    def _construct_prompt(self, bug_data, code_files, starting_route):
         """
         Formats the inputs and injects them into the text template.
         """
@@ -59,14 +59,15 @@ class ReproductionGenerator:
         return self.prompt_template.format(
             BUG_CONTEXT=bug_context_str,
             CODE_CONTEXT=code_context_str
+            STARTING_ROUTE=starting_route
         )
 
-    def generate_steps(self, bug_data, code_files):
+    def generate_steps(self, bug_data, code_files, starting_route):
         """
         Main method to generate the steps.
         """
         print(f"AGENT: Generating automation steps using {self.model_name}...")
-        prompt = self._construct_prompt(bug_data, code_files)
+        prompt = self._construct_prompt(bug_data, code_files, starting_route)
 
         try:
             response = self.client.chat.completions.create(
