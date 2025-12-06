@@ -10,6 +10,8 @@ from langchain_core.tools import tool
 from tree_sitter import Query, QueryCursor
 from tree_sitter_language_pack import get_language, get_parser
 
+PROJECT_ROOT = "./bilkent-tanitim/frontend"
+
 def cosine_similarity(v1: List[float], v2: List[float]) -> float:
     """Calculate cosine similarity between two vectors."""
     dot_product = sum(a * b for a, b in zip(v1, v2))
@@ -31,8 +33,17 @@ class LocalTools:
         Returns the structure with EXACT line numbers [start-end].
         Supports: Python, TypeScript, JS, Go, Rust, C++.
         """
-        if not os.path.exists(path):
-            return f"Error: File not found at {path}"
+        target_path = path
+        
+        if not os.path.exists(target_path):
+            potential_path = os.path.join(PROJECT_ROOT, path)
+            if os.path.exists(potential_path):
+                target_path = potential_path
+                
+        if not os.path.exists(target_path):
+            return f"Error: File not found at {path} (checked {target_path})"
+            
+        path = target_path
 
         ext = os.path.splitext(path)[1].lower()
         lang_map = {
@@ -127,13 +138,21 @@ class LocalTools:
             path: The relative path to the file.
             start_line: The first line to read (1-based index). Default is 1.
             end_line: The last line to read (1-based index). Default is -1 (Read until end of file).
-                      Example: start_line=10, end_line=20 will read lines 10 through 20.
+                    Example: start_line=10, end_line=20 will read lines 10 through 20.
         """
         try:
-            if not os.path.exists(path):
-                return f"Error: File not found at {path}"
+            target_path = path
+
+            if not os.path.exists(target_path):
+                potential_path = os.path.join(PROJECT_ROOT, path)
+                if os.path.exists(potential_path):
+                    target_path = potential_path
+
+            if not os.path.exists(target_path):
+                return f"Error: File not found at {path} (checked {target_path})"
             
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            # Use target_path (the resolved path) instead of the original input path
+            with open(target_path, "r", encoding="utf-8", errors="ignore") as f:
                 lines = f.readlines()
             
             total_lines = len(lines)
@@ -174,17 +193,25 @@ class LocalTools:
         Useful for exploring the codebase structure.
         """
         try:
-            if not os.path.isdir(path):
-                return f"Error: {path} is not a directory."
+            target_path = path
+
+            if not os.path.isdir(target_path):
+                potential_path = os.path.join(PROJECT_ROOT, path)
+                if os.path.isdir(potential_path):
+                    target_path = potential_path
+
+            if not os.path.isdir(target_path):
+                return f"Error: {path} is not a directory (checked {target_path})."
             
-            items = os.listdir(path)
+            # Use target_path to list the actual contents
+            items = os.listdir(target_path)
             formatted = []
             for item in items:
                 # Skip hidden files like .git to save noise
                 if item.startswith("."): 
                     continue
                     
-                full_path = os.path.join(path, item)
+                full_path = os.path.join(target_path, item)
                 if os.path.isdir(full_path):
                     formatted.append(f"[DIR]  {item}")
                 else:
@@ -204,6 +231,16 @@ class LocalTools:
             path: Root directory to start search (default is current).
         """
         try:
+            target_path = path
+
+            if path == "." or not os.path.exists(target_path):
+                potential_path = os.path.join(PROJECT_ROOT, path)
+                if os.path.exists(potential_path):
+                    target_path = potential_path
+            
+            if not os.path.exists(target_path):
+                target_path = PROJECT_ROOT
+
             results = []
             # Common web dev folders to ignore to speed up search
             exclude_dirs = {
@@ -216,7 +253,7 @@ class LocalTools:
             
             candidates = []
             
-            for root, dirs, files in os.walk(path):
+            for root, dirs, files in os.walk(target_path):
                 # Modify dirs in-place to skip ignored directories
                 dirs[:] = [d for d in dirs if d not in exclude_dirs]
                 
@@ -265,6 +302,16 @@ class LocalTools:
             path: The root directory to search in.
         """
         try:
+            target_path = path
+
+            if path == "." or not os.path.exists(target_path):
+                potential_path = os.path.join(PROJECT_ROOT, path)
+                if os.path.exists(potential_path):
+                    target_path = potential_path
+            
+            if not os.path.exists(target_path):
+                target_path = PROJECT_ROOT
+
             # Check for ripgrep
             if subprocess.call(["which", "rg"], stdout=subprocess.DEVNULL) != 0:
                 return "Error: 'rg' (ripgrep) is not installed."
@@ -285,7 +332,7 @@ class LocalTools:
                 "-n", 
                 "--json", 
                 "-e", pattern, 
-                path,
+                target_path,  # Use resolved path here
                 "-g", "!node_modules", # Ignore node_modules
                 "-g", "!dist",         # Ignore build output
                 "-g", "!build"
@@ -339,23 +386,30 @@ class LocalTools:
         Args:
             path: Relative path to the file.
         """
-        if not os.path.exists(path):
-            return f"Error: File not found at {path}"
-
-        # 1. Strict JS/TS Filter
-        ext = os.path.splitext(path)[1].lower()
-        valid_exts = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
-        
-        if ext not in valid_exts:
-            return f"Error: Skeleton view only supports JS/TS files. Use read_file for {ext}."
-
-        lang_name = "typescript" if ext in [".ts", ".tsx"] else "javascript"
-
         try:
+            target_path = path
+
+            if not os.path.exists(target_path):
+                potential_path = os.path.join(PROJECT_ROOT, path)
+                if os.path.exists(potential_path):
+                    target_path = potential_path
+
+            if not os.path.exists(target_path):
+                return f"Error: File not found at {path} (checked {target_path})"
+
+            # 1. Strict JS/TS Filter
+            ext = os.path.splitext(target_path)[1].lower()
+            valid_exts = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
+            
+            if ext not in valid_exts:
+                return f"Error: Skeleton view only supports JS/TS files. Use read_file for {ext}."
+
+            lang_name = "typescript" if ext in [".ts", ".tsx"] else "javascript"
+
             parser = get_parser(lang_name)
             language = get_language(lang_name)
             
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(target_path, "r", encoding="utf-8", errors="ignore") as f:
                 code = f.read()
             
             tree = parser.parse(bytes(code, "utf8"))
@@ -469,6 +523,16 @@ class LocalTools:
             context_lines: Number of lines to show around the match (default 1).
         """
         try:
+            target_path = path
+
+            if path == "." or not os.path.exists(target_path):
+                potential_path = os.path.join(PROJECT_ROOT, path)
+                if os.path.exists(potential_path):
+                    target_path = potential_path
+            
+            if not os.path.exists(target_path):
+                target_path = PROJECT_ROOT
+
             # Check for ripgrep
             if subprocess.call(["which", "rg"], stdout=subprocess.DEVNULL) != 0:
                 return "Error: 'rg' (ripgrep) is not installed on this system."
@@ -479,7 +543,7 @@ class LocalTools:
                 f"-C{context_lines}", # Context
                 "--json", # JSON output for reliable parsing
                 "-e", query, 
-                path
+                target_path # Use the resolved path
             ]
             
             result = subprocess.run(
@@ -532,13 +596,23 @@ class LocalTools:
         Returns:
             A JSON string containing 'reasoning', 'path', and 'component'.
         """
-        routes_path = "routes.json"
+        # --- START: APPROACH 1 PATH RESOLUTION ---
+        routes_filename = "routes.json"
+        target_path = routes_filename
         
-        if not os.path.exists(routes_path):
+        # 1. Check current directory
+        if not os.path.exists(target_path):
+            # 2. Check PROJECT_ROOT
+            potential_path = os.path.join(PROJECT_ROOT, routes_filename)
+            if os.path.exists(potential_path):
+                target_path = potential_path
+                
+        if not os.path.exists(target_path):
             return json.dumps({"path": "/", "component": None, "error": "routes.json not found"})
+        # --- END: APPROACH 1 PATH RESOLUTION ---
 
         try:
-            with open(routes_path, "r", encoding="utf-8") as f:
+            with open(target_path, "r", encoding="utf-8") as f:
                 routes = json.load(f)
         except Exception:
             return json.dumps({"path": "/", "component": None})
@@ -624,7 +698,7 @@ class LocalTools:
     1. **Identify the Failure Location**: Where does the bug *manifest*?
     - If the bug says "After clicking submit on the login page, it crashes", the start route is likely `/login`.
     - If it says "The dashboard graph is empty", the start route is likely `/dashboard`.
-    
+
     2. **Analyze Intent**: Compare the bug's intent with the 'Description' and 'Usecases' provided above.
     - Ignore generic features (like "User can view header") unless the bug is specifically about the header.
     - Focus on unique business logic (e.g., "High School Application form").

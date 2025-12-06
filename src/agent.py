@@ -10,8 +10,6 @@ SYSTEM_PROMPT = (
     "Your environment is HTML / CSS / TypeScript, and your job is to turn messy bug reports\n"
     "into precise, low-level browser automation Steps-to-Reproduce (S2R).\n"
     "Your Current Working Directory is: {cwd}\n"
-    "The primary frontend application you are analyzing lives at:\n"
-    "  ./bilkent-tanitim/frontend\n\n"
 
     "### YOUR TOOLKIT (LOCAL TOOLS)\n"
     "- **find_best_route(bug_description)**: ALWAYS CALL THIS FIRST. It returns the starting URL path AND the Component file.\n"
