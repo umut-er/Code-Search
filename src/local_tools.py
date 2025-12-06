@@ -3,12 +3,21 @@ import subprocess
 import json
 import difflib
 import math
-from typing import List, Dict, Any
+from typing import List
 
-from langchain_core.tools import StructuredTool, tool
+from langchain_core.tools import tool
 
 from tree_sitter import Query, QueryCursor
 from tree_sitter_language_pack import get_language, get_parser
+
+def cosine_similarity(v1: List[float], v2: List[float]) -> float:
+    """Calculate cosine similarity between two vectors."""
+    dot_product = sum(a * b for a, b in zip(v1, v2))
+    magnitude1 = math.sqrt(sum(a * a for a in v1))
+    magnitude2 = math.sqrt(sum(b * b for b in v2))
+    if magnitude1 == 0 or magnitude2 == 0:
+        return 0.0
+    return dot_product / (magnitude1 * magnitude2)
 
 class LocalTools:
     """
@@ -506,14 +515,7 @@ class LocalTools:
         except Exception as e:
             return f"Search execution error: {str(e)}"
 
-    def cosine_similarity(v1: List[float], v2: List[float]) -> float:
-        """Calculate cosine similarity between two vectors."""
-        dot_product = sum(a * b for a, b in zip(v1, v2))
-        magnitude1 = math.sqrt(sum(a * a for a in v1))
-        magnitude2 = math.sqrt(sum(b * b for b in v2))
-        if magnitude1 == 0 or magnitude2 == 0:
-            return 0.0
-        return dot_product / (magnitude1 * magnitude2)
+
 
     @tool("find_best_route")
     def find_best_route(bug_description: str) -> str:
