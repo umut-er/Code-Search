@@ -10,7 +10,6 @@ from langchain_core.messages import HumanMessage
 # Import from src
 from src.local_tools import LocalTools
 from src.agent import build_graph
-from src.s2r_tool import generate_s2r
 
 load_dotenv()
 
@@ -158,13 +157,6 @@ async def run_interactive():
                         print(
                             f"    Finding usage of filename={tool_input.get('filename')!r} "
                             f"in path={tool_input.get('path')!r}"
-                        )
-                    elif name == "generate_s2r":
-                        bug_preview = str(tool_input.get('bug_report', ''))[:80].replace("\n", " ")
-                        print(
-                            "    Generating S2R with code_paths="
-                            f"{tool_input.get('code_paths')!r} "
-                            f"for bug_report≈{bug_preview!r}"
                         )
                     
                     trace_bucket.append({

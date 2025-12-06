@@ -19,7 +19,6 @@ SYSTEM_PROMPT = (
     "- **read_file(path, start_line, end_line)**: Read focused code snippets using line ranges.\n"
     "- **read_file_skeleton(path)**: High-level skeleton view of a file with folded bodies.\n"
     "- **find_usage(filename, path)**: Find where a component/file is used to trace up to pages/routes.\n\n"
-    "- **generate_s2r(bug_report, code_paths, starting_route)**: The FINAL step. Generates the JSON script.\\n\\n"
     
     "### STANDARD OPERATING PROCEDURE (SOP)\n"
     "1. **Understand the bug**:\n"
