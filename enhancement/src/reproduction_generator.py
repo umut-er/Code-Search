@@ -58,7 +58,7 @@ class ReproductionGenerator:
         # {BUG_CONTEXT} and {CODE_CONTEXT} match the keys in reproduction_prompt.txt
         return self.prompt_template.format(
             BUG_CONTEXT=bug_context_str,
-            CODE_CONTEXT=code_context_str
+            CODE_CONTEXT=code_context_str,
             STARTING_ROUTE=starting_route
         )
 

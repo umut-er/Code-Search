@@ -1,0 +1,381 @@
+[
+  {
+    "path": "/dashboard",
+    "component": "src/modules/home/Activities.tsx",
+    "description": "The Activities component serves as the main interface for displaying a personalized calendar view, adapting to both desktop and mobile environments.",
+    "usecases": [
+      "Display a personalized welcome message using the authenticated user's name.",
+      "Provide a responsive calendar view that adapts to different screen sizes.",
+      "Integrate a calendar component that allows users to view and manage their activities."
+    ]
+  },
+  {
+    "path": "/tours-schedule",
+    "component": "src/modules/home/Home.tsx",
+    "description": "The Home component serves as the main landing page for authenticated users, providing a personalized greeting and a responsive calendar view.",
+    "usecases": [
+      "Display a personalized welcome message using the authenticated user's name.",
+      "Provide a responsive calendar view that adapts to different screen sizes."
+    ]
+  },
+  {
+    "path": "/tour-tracking",
+    "component": "src/modules/counsellor/TourTracking.tsx",
+    "description": "The TourTrackingStepper component manages and displays the status and details of a school tour, allowing users to view, edit, and provide feedback on the tour.",
+    "usecases": [
+      "Fetch and display detailed information about a specific school tour based on a tour ID from the URL.",
+      "Map and display the current status of the tour using a predefined status mapping.",
+      "Allow users to edit tour details such as date, time, and student count if the tour status permits.",
+      "Provide a feedback mechanism for users to rate and comment on the tour experience after completion.",
+      "Display guide information if the tour is accepted and a guide is assigned.",
+      "Redirect users to a 404 page if the tour ID is invalid or feedback has already been given."
+    ]
+  },
+  {
+    "path": "/tasks",
+    "component": "src/modules/task-trace/TaskTracePage.tsx",
+    "description": "A page dedicated to tracking and managing tasks using the TaskTracer component.",
+    "usecases": [
+      "Display a comprehensive view of tasks for tracking purposes.",
+      "Provide a centralized interface for task management and monitoring."
+    ]
+  },
+  {
+    "path": "/tours/highschool",
+    "component": "src/modules/tours/Tours.tsx",
+    "description": "Display a comprehensive list of tours with relevant details and options.",
+    "usecases": [
+      "Present a header with key information or actions related to tours.",
+      "Showcase a list of available tours for users to browse and select."
+    ]
+  },
+  {
+    "path": "/trainee-application",
+    "component": "src/modules/trainee/TraineeApplication.tsx",
+    "description": "The TraineeApplications component manages and displays a list of trainee applications, allowing users to review, accept, or reject each application.",
+    "usecases": [
+      "Fetch and display a list of trainee applications.",
+      "Provide detailed information about each trainee application, including name, department, contact information, and statement of purpose.",
+      "Allow users to accept or reject trainee applications, triggering asynchronous actions to update the application status.",
+      "Refresh the list of applications after an action is performed to ensure the display is up-to-date.",
+      "Handle loading states and display appropriate messages when there are no applications or data is being fetched."
+    ]
+  },
+  {
+    "path": "/tour-analysis",
+    "component": "src/modules/tour-analysis/TourAnalysis.tsx",
+    "description": "The TourAnalysis component provides a comprehensive analysis of tour data over multiple years, visualizing city-specific data, tour acceptance rates, daily statistics, and feedback ratings.",
+    "usecases": [
+      "Fetch and display general tour analysis data asynchronously.",
+      "Visualize city-specific tour data for multiple years using a map.",
+      "Present tour acceptance rates over different years.",
+      "Show daily statistics related to tours for each year.",
+      "Display feedback ratings and overall feedback for tours across years."
+    ]
+  },
+  {
+    "path": "/highschool-application",
+    "component": "src/modules/tour-application/HighSchoolApplication.tsx",
+    "description": "The HighSchoolApplication component facilitates the submission of a high school tour application by collecting necessary details and validating the input data.",
+    "usecases": [
+      "Collect and validate high school tour application details such as school name, date, time, group size, counselor information, and contact details.",
+      "Fetch and display a list of high schools for selection.",
+      "Validate form inputs to ensure all required fields are filled and adhere to specified formats.",
+      "Check the availability of the selected date and time for the tour.",
+      "Submit the application data to the server and handle success or error responses.",
+      "Provide feedback to the user through a snackbar notification upon successful or failed submission.",
+      "Display real-time density information for the selected date and time to inform the user about the availability."
+    ]
+  },
+  {
+    "path": "/individual-application",
+    "component": "src/modules/tour-application/IndividualApplication.tsx",
+    "description": "The IndividualApplication component facilitates the submission of a personal tour application by collecting and validating user information, and then dispatching the data to create a new application.",
+    "usecases": [
+      "Collect personal information for a tour application, including name, identity number, phone number, email, and high school details.",
+      "Validate user input to ensure all required fields are correctly filled and adhere to specified formats.",
+      "Fetch and filter high school options based on user input for autocomplete functionality.",
+      "Submit the validated application data to the server for processing.",
+      "Provide user feedback through a snackbar notification indicating the success or failure of the application submission.",
+      "Redirect the user to the main page upon successful application submission."
+    ]
+  },
+  {
+    "path": "/online-tour-application",
+    "component": "src/modules/tour-application/OnlineTourApplication.tsx",
+    "description": "The OnlineApplication component facilitates the application process for online tours by displaying available tours and allowing users to apply.",
+    "usecases": [
+      "Fetch and display a list of available online tours from the backend.",
+      "Allow users to apply for an online tour by submitting their personal information.",
+      "Update the list of tours to reflect changes in participant counts after an application is submitted."
+    ]
+  },
+  {
+    "path": "/tours/online",
+    "component": "src/modules/tours/OnlineTours.tsx",
+    "description": "Display a list of available online tours with relevant details and options.",
+    "usecases": [
+      "Present a header with information or actions related to online tours.",
+      "Showcase a comprehensive list of online tours for users to explore."
+    ]
+  },
+  {
+    "path": "/fair",
+    "component": "src/modules/tours/Fairs.tsx",
+    "description": "Display a list of fairs within the tours module, providing users with an overview of available fairs.",
+    "usecases": [
+      "Present a header specific to the tours section.",
+      "Showcase a list of fairs for users to explore."
+    ]
+  },
+  {
+    "path": "/tours/individual",
+    "component": "src/modules/tours/IndividualTours.tsx",
+    "description": "Display a detailed view of individual tours with relevant information and options.",
+    "usecases": [
+      "Present a list of individual tours for users to browse.",
+      "Provide a header with key information or actions related to the tours."
+    ]
+  },
+  {
+    "path": "/high-school-list",
+    "component": "src/modules/data-analytics/HighSchoolList.tsx",
+    "description": "The HighSchoolList component provides a comprehensive interface for viewing, filtering, and sorting a list of high schools based on various metrics such as YKS Success, Bilkent Loyalty, and feedback ratings. It allows users to interact with the data through search, sorting, and pagination functionalities, and provides visual indicators for high school performance categories.",
+    "usecases": [
+      "Display a list of high schools with relevant performance metrics.",
+      "Allow users to sort high schools by different columns such as name, success rating, loyalty rating, rank, tour count, and feedback mean.",
+      "Enable users to search for specific high schools or related data.",
+      "Filter high schools based on loyalty and success ranges using a popover interface.",
+      "Paginate through the list of high schools to manage large datasets.",
+      "Provide visual badges to indicate the performance category of each high school.",
+      "Navigate to a detailed overview of a selected high school."
+    ]
+  },
+  {
+    "path": "/high-school",
+    "component": "src/modules/data-analytics/DataAnalytics.tsx",
+    "description": "The DataAnalytics component provides a comprehensive view of school-specific data analysis, visualizing various metrics through charts and cards.",
+    "usecases": [
+      "Fetch and display analysis data for a specific school based on the URL parameter.",
+      "Visualize department preferences using a pie chart.",
+      "Display loyalty metrics through a bar chart.",
+      "Showcase school-specific data using scatter and line charts.",
+      "Present detailed card data including counsellor information, student statistics, and applicant numbers.",
+      "Provide a dynamic header displaying the school name and rank."
+    ]
+  },
+  {
+    "path": "/review-application",
+    "component": "src/modules/review-application/ReviewApplication.tsx",
+    "description": "Display and manage a list of tour applications for review.",
+    "usecases": [
+      "Present a list of tour applications for administrative review.",
+      "Facilitate the review process of tour applications by providing a dedicated interface."
+    ]
+  },
+  {
+    "path": "/advisor-stepper",
+    "component": "src/modules/advisor-stepper/AdvisorStepper.tsx",
+    "description": "The AdvisorStepper component manages and displays the progress of a trainee through a series of training steps, allowing for task assignment and completion tracking.",
+    "usecases": [
+      "Fetch and display trainee information and tasks.",
+      "Convert trainee tasks into a structured step format for display.",
+      "Determine and display the current active step and sub-step for the trainee.",
+      "Allow navigation through training steps and sub-steps.",
+      "Open a modal to assign tasks to the trainee with specific time and location.",
+      "Update task completion status and persist changes.",
+      "Display progress of completed tasks within each step."
+    ]
+  },
+  {
+    "path": "/application-progress",
+    "component": "src/modules/trainee/TraineeStepper.tsx",
+    "description": "The TraineeStepper component provides a visual representation of a trainee's progress through various training steps and allows interaction with specific tasks within those steps.",
+    "usecases": [
+      "Display the trainee's current progress in the training program.",
+      "Fetch and display trainee-specific tasks and their details.",
+      "Allow the responsible advisor to communicate directly with the trainee.",
+      "Enable the trainee to view detailed information about each task, including title, description, date, time, and location.",
+      "Provide functionality to decline a specific task, triggering a re-fetch of the trainee's data."
+    ]
+  },
+  {
+    "path": "/puantaj",
+    "component": "src/modules/puantaj/Puantaj.tsx",
+    "description": "The Puantaj component is designed to manage and display attendance logs for users, allowing for monthly navigation, search, and export functionalities.",
+    "usecases": [
+      "Fetch and display attendance logs for users.",
+      "Navigate through attendance logs by month.",
+      "Search for specific users within the attendance logs.",
+      "Export attendance data to an Excel file.",
+      "Display a color-coded legend for attendance hours.",
+      "Handle loading states while fetching data."
+    ]
+  },
+  {
+    "path": "/profile",
+    "component": "src/modules/profile-new/ProfileNew.tsx",
+    "description": "The ProfileNew component provides a comprehensive user profile management interface, allowing users to view and update their personal information, manage their avatar, and access work-related data.",
+    "usecases": [
+      "Display user profile information including name, department, contact details, and role.",
+      "Allow users to update their profile picture by uploading a new avatar.",
+      "Enable users to change their password and update their phone number.",
+      "Show statistics related to the user's completed tours and total hours worked.",
+      "Provide navigation between different profile-related sections such as Work, Schedule, and Settings.",
+      "Fetch and display a list of tours associated with the user's profile.",
+      "Handle form submissions for updating user settings with validation and feedback through a snackbar notification system."
+    ]
+  },
+  {
+    "path": "/team",
+    "component": "src/modules/people/People.tsx",
+    "description": "The People component manages the display and interaction with a list of users, allowing for viewing individual profiles and adding new users based on user roles.",
+    "usecases": [
+      "Display a list of all users.",
+      "View detailed profile information of a selected user.",
+      "Add a new user to the list if the current user has sufficient permissions.",
+      "Adapt the layout for mobile and desktop views.",
+      "Refresh the list of users to ensure up-to-date information."
+    ]
+  },
+  {
+    "path": "/messages",
+    "component": "src/modules/messages/Messages.tsx",
+    "description": "The Messages component facilitates real-time chat interactions, allowing users to manage and engage in conversations with other users, while maintaining chat history and user status updates.",
+    "usecases": [
+      "Initialize and manage WebSocket connections for real-time messaging.",
+      "Fetch and display chat history from the server upon component load.",
+      "Update chat messages and user status in real-time as new data is received.",
+      "Persist chat data locally using localStorage for offline access.",
+      "Allow users to select and switch between different chat conversations.",
+      "Handle mobile and desktop views for chat interactions, adapting the UI accordingly.",
+      "Provide error handling and display error messages when data fetching fails."
+    ]
+  },
+  {
+    "path": "/university-analysis",
+    "component": "src/modules/university-analysis/UniversityAnalysis.tsx",
+    "description": "The UniversityAnalysis component provides a comprehensive visual representation of university-related data through various chart types.",
+    "usecases": [
+      "Display university data using bar charts for comparative analysis.",
+      "Visualize university data distribution with pie charts.",
+      "Present YKS-specific data using bar charts for targeted insights.",
+      "Show trends over time with line charts for university data."
+    ]
+  },
+  {
+    "path": "*",
+    "component": "src/modules/not-found/not-found.page.tsx",
+    "description": "Display a generic error page when a user navigates to a non-existent route.",
+    "usecases": [
+      "Inform users that the requested page does not exist.",
+      "Provide a consistent error experience across the application."
+    ]
+  },
+  {
+    "path": "/forgot-password",
+    "component": "src/modules/forgot-password/ForgotPassword.tsx",
+    "description": "A component for users to initiate a password reset process by entering their Bilkent University email address.",
+    "usecases": [
+      "Validate that the email address is in the correct Bilkent University format.",
+      "Display error messages for invalid email formats or empty email fields.",
+      "Simulate sending a password reset link to the user's email.",
+      "Provide feedback to the user upon successful initiation of the password reset process.",
+      "Navigate back to the login page."
+    ]
+  },
+  {
+    "path": "/announcement",
+    "component": "src/modules/announcement/Announcement.tsx",
+    "description": "The AnnouncementPage component facilitates the creation, display, and management of announcements and polls within a user interface.",
+    "usecases": [
+      "Display a list of announcements sorted by time.",
+      "Allow authenticated users to create new announcements with a subject and message.",
+      "Enable users to create polls with multiple options as part of an announcement.",
+      "Validate input fields for announcements and polls to ensure required information is provided.",
+      "Persist new announcements and polls to the backend and update the UI accordingly.",
+      "Provide feedback to users on the success or failure of posting announcements via a snackbar notification.",
+      "Allow users to toggle the visibility of the new post creation form.",
+      "Enable users to add or remove options in a poll dynamically.",
+      "Display existing polls within announcements and allow users to interact with them."
+    ]
+  },
+  {
+    "path": "/login",
+    "component": "src/modules/login/Login.tsx",
+    "description": "A login interface for Bilkent Tanitim that validates user credentials and navigates users based on their roles.",
+    "usecases": [
+      "Authenticate users with email and password.",
+      "Validate email format to ensure it ends with 'bilkent.edu.tr'.",
+      "Provide feedback for incorrect login attempts with error messages.",
+      "Navigate authenticated users to appropriate routes based on their roles.",
+      "Allow users to toggle password visibility.",
+      "Enable users to opt for 'Remember Me' functionality.",
+      "Provide a link for users to reset their password if forgotten."
+    ]
+  },
+  {
+    "path": "/trainee-applications",
+    "component": "src/modules/trainee/TraineeApplication.tsx",
+    "description": "The TraineeApplications component manages and displays a list of trainee applications, allowing users to review, accept, or reject each application.",
+    "usecases": [
+      "Fetch and display a list of trainee applications.",
+      "Allow users to view detailed information about each trainee application, including personal details and a statement of purpose.",
+      "Enable users to accept or reject trainee applications, triggering appropriate actions and refreshing the application list.",
+      "Display loading indicators while trainee application data is being fetched.",
+      "Show a message when there are no trainee applications available."
+    ]
+  },
+  {
+    "path": "/",
+    "component": "src/modules/main-page/MainPage.tsx",
+    "description": "The MainPage component serves as an interactive platform for users to learn about Bilkent University through various sections and a chatbot interface, providing information and assistance regarding tours, promotional fairs, and the university's offerings.",
+    "usecases": [
+      "Provide detailed information about Bilkent University's tour options, including group tours, individual tours, and online sessions.",
+      "Facilitate communication with potential students and educators through a chatbot that answers questions based on predefined content.",
+      "Enable users to inquire about and invite the university to promotional fairs via a contact form.",
+      "Introduce the Bilkent Tan\u0131t\u0131m Ofisi and its role in promoting the university's academic, social, and cultural opportunities.",
+      "Allow users to toggle a chat interface to interact with an AI-powered assistant for real-time information and support.",
+      "Ensure seamless user experience by automatically scrolling to the latest chat message and providing typing indicators during chatbot interactions."
+    ]
+  },
+  {
+    "path": "/fair-application",
+    "component": "src/modules/tour-application/FairApplication.tsx",
+    "description": "The FairApplication component facilitates the submission of applications for school fairs by collecting necessary details and validating the input data.",
+    "usecases": [
+      "Fetch and display a list of high schools for selection.",
+      "Validate user input for required fields such as high school name, date, time, contact name, and phone number.",
+      "Prevent submission of applications with past dates or invalid phone numbers.",
+      "Submit the application data to the server and handle success or error responses.",
+      "Display feedback to the user via a snackbar notification upon successful or failed submission.",
+      "Navigate the user back to the main page after a successful application submission."
+    ]
+  },
+  {
+    "path": "/high-school-tours",
+    "component": "src/modules/feedback/FeedbackPageHS.tsx",
+    "description": "The FeedbackHSPage component provides a platform for users to view and filter feedback related to high schools, allowing them to search by school name, filter by date range, and select feedback based on star ratings.",
+    "usecases": [
+      "Fetch and display feedback data for a specific high school.",
+      "Filter feedback based on a specified date range.",
+      "Search feedback by high school name.",
+      "Filter feedback by star rating.",
+      "Display detailed feedback information upon selection.",
+      "Handle loading states and display appropriate messages when no feedback is available."
+    ]
+  },
+  {
+    "path": "/feedback-page",
+    "component": "src/modules/feedback/FeedbackPage.tsx",
+    "description": "The Feedback Page component provides a comprehensive interface for viewing, filtering, and analyzing feedback data related to high schools.",
+    "usecases": [
+      "Fetch and display feedback data from the backend.",
+      "Filter feedback based on date range, high school name, and star rating.",
+      "Search feedback by high school name with Turkish uppercase support.",
+      "Select and view detailed information of a specific feedback entry.",
+      "Display a loading state while feedback data is being fetched.",
+      "Show a message when no feedback matches the filter criteria."
+    ]
+  }
+]

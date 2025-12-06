@@ -1,0 +1,35 @@
+[
+  {
+    "component": "src/features/auth/LoginForm.tsx",
+    "description": "User authentication entry point allowing secure access to the platform.",
+    "usecases": [
+      "Validate credentials against the identity provider.",
+      "Toggle password field visibility for user convenience.",
+      "Initiate the 'Forgot Password' recovery flow.",
+      "Persist session state via 'Keep me signed in' option."
+    ]
+  },
+  {
+    "component": "src/pages/settings/BillingSettings.tsx",
+    "description": "Management interface for subscription plans and payment methods.",
+    "usecases": [
+      "View current subscription tier and usage limits.",
+      "Upgrade or downgrade the active plan.",
+      "Add or remove credit card information.",
+      "Download past invoices as PDF.",
+      "View next billing date and estimated amount."
+    ],
+    "notes": "Sidebar and Global Header interactions are intentionally omitted."
+  },
+  {
+    "component": "src/components/datagrid/OrderList.tsx",
+    "description": "A comprehensive table view for browsing and managing customer orders.",
+    "usecases": [
+      "Filter orders by status (e.g., Pending, Shipped, Delivered).",
+      "Search for specific orders using Order ID or Customer Name.",
+      "Bulk export selected rows to CSV.",
+      "Navigate to order details view upon clicking a row.",
+      "Trigger 'Re-order' workflow for past items."
+    ]
+  }
+]

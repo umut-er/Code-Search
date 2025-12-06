@@ -1,27 +1,36 @@
 import os
 import sys
 import argparse
+import asyncio
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from src.preprocess_agent import run_route_discovery
+# Import the new enrichment function
+from src.enrichment_agent import run_enrichment
 
 def main():
-    parser = argparse.ArgumentParser(description="Route Discovery Preprocessing Agent")
-    parser.add_argument("--log", action="store_true", help="Enable detailed logging to file")
+    parser = argparse.ArgumentParser(description="Route Discovery & Enrichment Pipeline")
+    parser.add_argument("--log", action="store_true", help="Enable detailed logging")
+    parser.add_argument("--skip-discovery", action="store_true", help="Skip discovery, only run enrichment on existing routes.json")
     args = parser.parse_args()
     
-    print("--- STARTING PRE-PROCESS: ROUTE MAPPING ---")
-    
-    run_route_discovery(enable_logging=args.log)
-    
-    if os.path.exists("routes.json"):
-        import json
-        with open("routes.json", "r") as f:
-            data = json.load(f)
-        print(f"📊 Summary: Found {len(data)} routes.")
+    # PHASE 1: DISCOVERY
+    if not args.skip_discovery:
+        print("\n=== PHASE 1: ROUTE DISCOVERY AGENT ===")
+        run_route_discovery(enable_logging=args.log)
     else:
-        print("⚠️ Warning: routes.json was not created. The agent might have failed to find routes.")
+        print("\n=== PHASE 1: SKIPPED ===")
+
+    # PHASE 2: ENRICHMENT
+    if os.path.exists("routes.json"):
+        print("\n=== PHASE 2: USE CASE ENRICHMENT AGENT ===")
+        try:
+            asyncio.run(run_enrichment("routes.json"))
+        except Exception as e:
+            print(f"❌ Enrichment Phase Failed: {e}")
+    else:
+        print("⚠️ Warning: routes.json not found. Cannot proceed to enrichment.")
 
 if __name__ == "__main__":
     main()

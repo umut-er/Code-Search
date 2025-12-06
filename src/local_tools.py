@@ -2,6 +2,8 @@ import os
 import subprocess
 import json
 import difflib
+import math
+from typing import List, Dict, Any
 
 from langchain_core.tools import StructuredTool, tool
 
@@ -504,17 +506,29 @@ class LocalTools:
         except Exception as e:
             return f"Search execution error: {str(e)}"
 
+    def cosine_similarity(v1: List[float], v2: List[float]) -> float:
+        """Calculate cosine similarity between two vectors."""
+        dot_product = sum(a * b for a, b in zip(v1, v2))
+        magnitude1 = math.sqrt(sum(a * a for a in v1))
+        magnitude2 = math.sqrt(sum(b * b for b in v2))
+        if magnitude1 == 0 or magnitude2 == 0:
+            return 0.0
+        return dot_product / (magnitude1 * magnitude2)
+
     @tool("find_best_route")
     def find_best_route(bug_description: str) -> str:
         """
-        Decides the best starting point for reproducing a bug by analyzing 'routes.json'.
+        Decides the best starting point for reproducing a bug using Semantic Search + LLM Reasoning.
         
+        1. Embeds the bug description and all route metadata (Description + Usecases).
+        2. Finds the top 7 most relevant routes using Cosine Similarity.
+        3. Asks the LLM to select the single best match from these top candidates using Chain-of-Thought.
+
         Args:
             bug_description: The text describing the bug.
             
         Returns:
-            A JSON string containing the 'path' and 'component'.
-            Example: '{"path": "/login", "component": "src/pages/Login.tsx"}'
+            A JSON string containing 'reasoning', 'path', and 'component'.
         """
         routes_path = "routes.json"
         
@@ -530,35 +544,123 @@ class LocalTools:
         if not routes:
             return json.dumps({"path": "/", "component": None})
 
-        # Prepare context for LLM
-        routes_text = "\\n".join([f"- Path: {r.get('path')} | Component: {r.get('component')}" for r in routes])
+        try:
+            from openai import OpenAI
+            client = OpenAI()
+        except ImportError:
+            return json.dumps({"path": "/", "component": None, "error": "OpenAI library not available"})
 
-        client = OpenAI()
+        # --- PHASE 1: SEMANTIC SEARCH (RAG) ---
+        # Prepare text chunks for embedding
+        # We combine path, description, and usecases into a single semantic string for each route.
+        route_texts = []
+        for r in routes:
+            desc = r.get('description', '')
+            usecases = ", ".join(r.get('usecases', []))
+            # Intent-focused text representation
+            text_repr = f"Route Path: {r.get('path')}\nPurpose: {desc}\nCapabilities: {usecases}"
+            route_texts.append(text_repr)
+
+        try:
+            # 1. Embed the Bug Description
+            bug_emb_resp = client.embeddings.create(
+                input=[bug_description],
+                model="text-embedding-3-small" # Cheap and fast
+            )
+            bug_vector = bug_emb_resp.data[0].embedding
+
+            # 2. Embed All Routes (Batch Processing)
+            # Note: If you have >2000 routes, you might need to batch this loop. 
+            # For <100 routes, a single call is fine.
+            route_emb_resp = client.embeddings.create(
+                input=route_texts,
+                model="text-embedding-3-small"
+            )
+            route_vectors = [item.embedding for item in route_emb_resp.data]
+
+            # 3. Calculate Similarity Scores
+            scored_routes = []
+            for i, r_vector in enumerate(route_vectors):
+                score = cosine_similarity(bug_vector, r_vector)
+                scored_routes.append((score, routes[i]))
+
+            # 4. Get Top K Candidates (e.g., Top 7)
+            # We assume the correct route is definitely within the top 7 semantic matches.
+            scored_routes.sort(key=lambda x: x[0], reverse=True)
+            top_routes = [item[1] for item in scored_routes[:7]]
+
+        except Exception as e:
+            print(f"Embedding/Search failed: {e}. Falling back to simple keyword search.")
+            # Fallback: If embedding fails, just take the first 10 or do a basic keyword filter
+            top_routes = routes[:10]
+
+        # --- PHASE 2: LLM REASONING (Chain-of-Thought) ---
         
-        prompt = f"""
-            You are a Senior Frontend Software Engineer and Route Selector.
-            Here are the available routes in the application:
-            {routes_text}
+        # Format ONLY the top candidates for the prompt (Saving Tokens!)
+        routes_context = []
+        for r in top_routes:
+            info = f"Path: {r.get('path')}\nComponent: {r.get('component')}\nDescription: {r.get('description')}\nUsecases:\n"
+            for uc in r.get('usecases', []):
+                info += f"  - {uc}\n"
+            routes_context.append(info)
+        
+        context_text = "\n---\n".join(routes_context)
 
-            BUG REPORT:
-            {bug_description}
+        prompt = f"""You are a Senior QA Automation Engineer.
+    Your goal is to identify the **single best starting URL** to reproduce the bug described below.
 
-            TASK:
-            Select the single most relevant route that is most likely to reproduce the bug to start the reproduction. If the bug happens on the login page, choose '/login'.
-            Return a JSON object with "path" and "component".
+    I have performed a semantic search and identified the following TOP {len(top_routes)} MOST RELEVANT ROUTES:
 
-            Example Output:
-            {{ "path": "/dashboard", "component": "src/pages/Dashboard.tsx" }}
-        """
+    {context_text}
+
+    ---
+    BUG REPORT:
+    {bug_description}
+
+    ---
+    ### ANALYSIS STRATEGY (Chain of Thought):
+    1. **Identify the Failure Location**: Where does the bug *manifest*?
+    - If the bug says "After clicking submit on the login page, it crashes", the start route is likely `/login`.
+    - If it says "The dashboard graph is empty", the start route is likely `/dashboard`.
+    
+    2. **Analyze Intent**: Compare the bug's intent with the 'Description' and 'Usecases' provided above.
+    - Ignore generic features (like "User can view header") unless the bug is specifically about the header.
+    - Focus on unique business logic (e.g., "High School Application form").
+
+    3. **Handle Global Issues**: 
+    - If the bug is about a global component (Sidebar, Navbar) appearing on all pages, prefer the root path "/" or "/dashboard".
+
+    ### OUTPUT
+    Return a JSON object with:
+    - "reasoning": Brief explanation of why you selected this route over others.
+    - "path": The URL path.
+    - "component": The file path.
+
+    Example:
+    {{
+    "reasoning": "The bug reports a failure when submitting the high school form. The '/highschool-application' route specifically lists 'Submit application' in its use cases, making it the most direct match.",
+    "path": "/highschool-application",
+    "component": "src/modules/tour-application/HighSchoolApplication.tsx"
+    }}
+    """
 
         try:
             response = client.chat.completions.create(
                 model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": "You are a route selection expert. Return valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
                 temperature=0.0,
                 response_format={"type": "json_object"}
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
-            print(f"Error in find_best_route: {e}")
-            return json.dumps({"path": "/", "component": None})
+            print(f"Error in find_best_route LLM call: {e}")
+            # Fallback to the top semantic match if LLM fails
+            best_match = top_routes[0]
+            return json.dumps({
+                "path": best_match.get("path"),
+                "component": best_match.get("component"),
+                "reasoning": "LLM failed, returning top semantic match."
+            })
