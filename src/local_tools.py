@@ -3,7 +3,7 @@ import subprocess
 import json
 import difflib
 import math
-from typing import List
+from typing import List, Dict, Any
 
 from langchain_core.tools import tool
 
@@ -377,44 +377,25 @@ class LocalTools:
         except Exception as e:
             return f"Error finding usage: {str(e)}"
 
-    @tool("read_file_skeleton")
-    def read_file_skeleton(path: str) -> str:
+    def _generate_skeleton(self, path: str, code: str) -> str:
         """
-        Reads a JS/TS file and returns a skeleton view.
-        It folds logic bodies (hooks, handlers) but keeps the 'return (...)' JSX visible.
+        Internal helper: Generates a skeleton view of the code by folding function bodies.
+        Returns the skeleton string. If language is not supported, returns a specific error string.
+        """
+        ext = os.path.splitext(path)[1].lower()
+        valid_exts = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
         
-        Args:
-            path: Relative path to the file.
-        """
+        if ext not in valid_exts:
+            return f"Error: Skeleton view only supports JS/TS files. Got {ext}."
+
+        lang_name = "typescript" if ext in [".ts", ".tsx"] else "javascript"
+
         try:
-            target_path = path
-
-            if not os.path.exists(target_path):
-                potential_path = os.path.join(PROJECT_ROOT, path)
-                if os.path.exists(potential_path):
-                    target_path = potential_path
-
-            if not os.path.exists(target_path):
-                return f"Error: File not found at {path} (checked {target_path})"
-
-            # 1. Strict JS/TS Filter
-            ext = os.path.splitext(target_path)[1].lower()
-            valid_exts = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
-            
-            if ext not in valid_exts:
-                return f"Error: Skeleton view only supports JS/TS files. Use read_file for {ext}."
-
-            lang_name = "typescript" if ext in [".ts", ".tsx"] else "javascript"
-
             parser = get_parser(lang_name)
             language = get_language(lang_name)
-            
-            with open(target_path, "r", encoding="utf-8", errors="ignore") as f:
-                code = f.read()
-            
             tree = parser.parse(bytes(code, "utf8"))
             
-            # 2. Query for Function/Class Bodies
+            # Query for foldable blocks
             query_scm = """
             (function_declaration body: (_) @body)
             (method_definition body: (_) @body)
@@ -422,12 +403,10 @@ class LocalTools:
             (class_declaration body: (_) @body)
             """
 
-            # 3. Execute Query (Fixed for tree-sitter v0.22+)
             query = Query(language, query_scm)
             cursor = QueryCursor(query)
             captures_obj = cursor.captures(tree.root_node)
             
-            # Normalize captures
             nodes = []
             if isinstance(captures_obj, dict):
                 for _, captured_nodes in captures_obj.items():
@@ -435,14 +414,13 @@ class LocalTools:
             else:
                 nodes = [node for node, _ in captures_obj]
 
-            # 4. Optional: Fold large top-level variables (Styled Components, Configs)
+            # Fold large top-level variables (e.g. styled components)
             program = tree.root_node
             for child in program.children:
                 if child.type in ("lexical_declaration", "variable_declaration"):
                     if (child.end_point[0] - child.start_point[0]) > 4:
                         nodes.append(child)
 
-            # 5. Process Folds
             nodes.sort(key=lambda n: n.start_point[0])
             fold_ranges = []
             last_fold_end_line = -1
@@ -451,24 +429,20 @@ class LocalTools:
                 start_line = node.start_point[0]
                 end_line = node.end_point[0]
                 
-                # Skip tiny blocks (< 5 lines) or nested blocks
                 if (end_line - start_line) < 5: continue
                 if start_line <= last_fold_end_line: continue
                 
                 fold_start = start_line + 1
                 fold_end = end_line - 1
 
-                # --- SMART LOGIC: FIND RETURN STATEMENT ---
-                # If we are inside a function body, look for the JSX return.
+                # Smart logic: Keep 'return' statement visible if found
                 if node.type == "statement_block":
                     return_node = None
-                    # Search children for the LAST return statement
                     for child in node.children:
                         if child.type == "return_statement":
                             return_node = child
                     
                     if return_node:
-                        # Fold everything up to the line BEFORE the return
                         candidate_end = return_node.start_point[0] - 1
                         if candidate_end > fold_start:
                             fold_end = candidate_end
@@ -477,8 +451,7 @@ class LocalTools:
                     fold_ranges.append((fold_start, fold_end))
                     last_fold_end_line = end_line 
 
-            # 6. Reconstruct File
-            # Map: line_index -> lines_hidden_count
+            # Reconstruct
             fold_map = {start: (end - start + 1) for start, end in fold_ranges}
             hidden_lines = set()
             for start, end in fold_ranges:
@@ -493,12 +466,10 @@ class LocalTools:
                 if i in hidden_lines:
                     if i in fold_map:
                         count = fold_map[i]
-                        # Calculate indentation from previous line
                         prev_indent = ""
                         if i > 0:
                             prev = lines[i-1]
                             prev_indent = prev[:len(prev) - len(prev.lstrip())]
-                        
                         result.append(f" ... | {prev_indent}// ... logic folded ({count} lines) ...")
                     i += 1
                 else:
@@ -508,8 +479,34 @@ class LocalTools:
             return "\n".join(result)
 
         except Exception as e:
-            import traceback
-            return f"Error generating skeleton: {e}\n{traceback.format_exc()}"
+            return f"Error generating skeleton: {str(e)}"
+
+    @tool("read_file_skeleton")
+    def read_file_skeleton(self, path: str) -> str:
+        """
+        Reads a JS/TS file and returns a skeleton view.
+        It folds logic bodies (hooks, handlers) but keeps the 'return (...)' JSX visible.
+        
+        Args:
+            path: Relative path to the file.
+        """
+        try:
+            target_path = path
+            if not os.path.exists(target_path):
+                potential_path = os.path.join(PROJECT_ROOT, path)
+                if os.path.exists(potential_path):
+                    target_path = potential_path
+
+            if not os.path.exists(target_path):
+                return f"Error: File not found at {path}"
+
+            with open(target_path, "r", encoding="utf-8", errors="ignore") as f:
+                code = f.read()
+            
+            return self._generate_skeleton(target_path, code)
+
+        except Exception as e:
+            return f"Error reading file skeleton: {str(e)}"
 
     @tool("grep_text")
     def grep_text(query: str, path: str = ".", context_lines: int = 1) -> str:
@@ -582,7 +579,7 @@ class LocalTools:
 
 
     @tool("find_best_route")
-    def find_best_route(bug_description: str) -> str:
+    def find_best_route(bug_info: Dict[str, Any]) -> str:
         """
         Decides the best starting point for reproducing a bug using Semantic Search + LLM Reasoning.
         
@@ -629,6 +626,7 @@ class LocalTools:
         # --- PHASE 1: SEMANTIC SEARCH (RAG) ---
         # Prepare text chunks for embedding
         # We combine path, description, and usecases into a single semantic string for each route.
+        bug_description = "Title: " + bug_info.get("Title") + "\nDescription: " + bug_info.get("Description") + "\nSteps to Reproduce: " + bug_info.get("S2R") + "\nObserved Behavior: " + bug_info.get("OB")
         route_texts = []
         for r in routes:
             desc = r.get('description', '')
@@ -740,3 +738,121 @@ class LocalTools:
                 "component": best_match.get("component"),
                 "reasoning": "LLM failed, returning top semantic match."
             })
+
+    @tool("submit_final_report")
+    def submit_final_report(self, bug_info: Dict[str, Any], file_paths: List[str]) -> str:
+        """
+        The FINAL ACTION tool. Call this when you have identified all relevant file paths.
+        
+        This tool will:
+        1. Read the full content of the files.
+        2. Generate a SKELETON view of the code to save tokens.
+        3. Use an LLM to generate a concise 'description' of why the file is relevant based on the skeleton.
+        4. Save the full context to disk.
+
+        Args:
+            bug_info: The enhanced bug report object (must contain 'Title', 'OB', 'S2R', etc.).
+            file_paths: A list of relative file paths relevant to the bug (e.g., ["src/components/Login.tsx"]).
+        """
+        # Initialize OpenAI
+        try:
+            client = OpenAI()
+        except Exception as e:
+            return f"Error initializing OpenAI: {e}"
+
+        final_output = {
+            "ID": bug_info.get("ID"),
+            "Title": bug_info.get("Title"),
+            "Description": bug_info.get("Description"),
+            "OB": bug_info.get("OB"),
+            "EB": bug_info.get("EB"),
+            "S2R": bug_info.get("S2R"),
+            "relevant_files": []
+        }
+
+        print("\n📝 Generating Final Report Descriptions...")
+
+        for path in file_paths:
+            content = ""
+            target_path = path
+            
+            # Resolve Path
+            if not os.path.exists(target_path):
+                potential_path = os.path.join(PROJECT_ROOT, path)
+                if os.path.exists(potential_path):
+                    target_path = potential_path
+            
+            # Read Content
+            if os.path.exists(target_path):
+                try:
+                    with open(target_path, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+                except Exception as e:
+                    content = f"<Error reading file: {str(e)}>"
+            else:
+                content = "<Error: File not found on disk>"
+                final_output["relevant_files"].append({
+                    "name": os.path.basename(path),
+                    "path": path,
+                    "description": "File not found.",
+                    "content": content
+                })
+                continue
+
+            # --- GENERATE SMART CONTEXT FOR LLM ---
+            # Try to generate a skeleton. If it fails (e.g. CSS/JSON file), use truncated content.
+            context_for_llm = self._generate_skeleton(target_path, content)
+            
+            if context_for_llm.startswith("Error:"):
+                # Fallback for non-JS/TS files: use first 500 lines
+                lines = content.splitlines()
+                context_for_llm = "\n".join(lines[:500])
+                if len(lines) > 500:
+                    context_for_llm += "\n... (remaining content truncated for description generation) ..."
+
+            # --- LLM CALL FOR DESCRIPTION ---
+            prompt = f"""
+            You are a Technical QA Lead.
+            
+            BUG REPORT:
+            Title: {bug_info.get('Title')}
+            Description: {bug_info.get('Description')}
+            Steps to Reproduce: {bug_info.get('S2R')}
+            Observed Behavior: {bug_info.get('OB')}
+            
+            FILE: {path}
+            CODE SKELETON / CONTENT:
+            {context_for_llm}
+            
+            TASK:
+            Write a single, concise sentence explaining strictly WHY this file is relevant to this bug.
+            Example: "Contains the 'LoginForm' component which is likely to used for the login process."
+            """
+
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.2,
+                    max_tokens=80
+                )
+                generated_description = response.choices[0].message.content.strip()
+            except Exception as e:
+                generated_description = f"Auto-generation failed: {str(e)}"
+
+            # Append to Output
+            final_output["relevant_files"].append({
+                "name": os.path.basename(path),
+                "path": path,
+                "description": generated_description,
+                "content": content # Save FULL content for the reproduction agent
+            })
+
+        # Save Final Context
+        output_filename = "final_context.json"
+        try:
+            with open(output_filename, "w", encoding="utf-8") as f:
+                json.dump(final_output, f, indent=2)
+            return "SEARCH_COMPLETED_SUCCESSFULLY"
+        except Exception as e:
+            return f"ERROR: Could not save context: {e}"
