@@ -11,8 +11,239 @@ from tree_sitter import Query, QueryCursor
 from tree_sitter_language_pack import get_language, get_parser
 from openai import OpenAI
 import time
+import re
+
 
 PROJECT_ROOT = "./bilkent-tanitim/frontend"
+_VITE_ALIAS_CACHE = None
+
+
+def load_vite_aliases(project_root: str) -> dict:
+    """
+    Parses vite.config.ts/js to find the 'resolve.alias' block.
+    Returns a dictionary of {alias_key: target_path}.
+    Example: {'@': 'src', '@components': 'src/components'}
+    """
+    global _VITE_ALIAS_CACHE
+    if _VITE_ALIAS_CACHE is not None:
+        return _VITE_ALIAS_CACHE
+
+    aliases = {}
+    config_files = ["vite.config.ts", "vite.config.js", "tsconfig.json"]
+    
+    config_content = ""
+    found_path = ""
+    
+    for fname in config_files:
+        path = os.path.join(project_root, fname)
+        if os.path.exists(path):
+            found_path = path
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                config_content = f.read()
+            break
+            
+    if not config_content:
+        # Fallback default if no config found
+        _VITE_ALIAS_CACHE = {"@": "src"} 
+        return _VITE_ALIAS_CACHE
+
+    # Strategy A: Regex for Vite Config structure
+    # Matches: alias: { "@": path.resolve(__dirname, "./src") }
+    # This is a heuristic regex; it covers common patterns but isn't a full AST parser.
+    # It looks for key-value pairs inside an alias object.
+    
+    # 1. Simple string aliases: alias: { "@": "/src" }
+    simple_matches = re.finditer(r'["\'](@[\w-]*)["\']\s*:\s*["\']([^"\']+)["\']', config_content)
+    for m in simple_matches:
+        key, val = m.groups()
+        # Clean relative path dots if present
+        if val.startswith("./"): val = val[2:]
+        if val.startswith("/"): val = val[1:]
+        aliases[key] = val
+
+    # 2. Path.resolve aliases: alias: { "@": path.resolve(__dirname, "./src") }
+    resolve_matches = re.finditer(r'["\'](@[\w-]*)["\']\s*:\s*path\.resolve\(__dirname,\s*["\']([^"\']+)["\']\)', config_content)
+    for m in resolve_matches:
+        key, val = m.groups()
+        if val.startswith("./"): val = val[2:]
+        aliases[key] = val
+
+    # Strategy B: Fallback to tsconfig if vite config didn't yield typical regex matches
+    if not aliases and "tsconfig" in found_path:
+        # Very basic json parse or regex for "paths"
+        # "paths": { "@/*": ["src/*"] }
+        paths_matches = re.finditer(r'"(@[\w/\*-]*)":\s*\[\s*"([^"]+)"', config_content)
+        for m in paths_matches:
+            key, val = m.groups()
+            key = key.replace("/*", "")
+            val = val.replace("/*", "")
+            aliases[key] = val
+
+    # Final Default
+    if not aliases:
+        aliases = {"@": "src"}
+
+    _VITE_ALIAS_CACHE = aliases
+    return aliases
+
+def resolve_file_imports(file_path: str, code: str) -> str:
+    """
+    Scans the ENTIRE file for imports and attempts to resolve aliases 
+    based on the project's configuration.
+    """
+    # 1. Load Aliases
+    project_root = "." # Assuming CWD is root, adjust if needed
+    aliases = load_vite_aliases(project_root)
+    
+    lines = code.splitlines()
+    header = []
+    
+    # Regex for standard imports: import ... from "target"
+    # Also handles dynamic imports: const x = await import("target")
+    import_pattern = re.compile(r'(?:from|import)\s*\(?\s*["\']([^"\']+)["\']')
+    
+    processed_imports = set()
+    
+    for line in lines: 
+        match = import_pattern.search(line)
+        if match:
+            import_path = match.group(1)
+            
+            if import_path in processed_imports: 
+                continue
+            
+            resolved = None
+            
+            # 1. Check against loaded aliases
+            # Sort aliases by length descending to match longest prefix first (@components vs @)
+            for alias_key, alias_val in sorted(aliases.items(), key=lambda x: -len(x[0])):
+                if import_path.startswith(alias_key):
+                    # Replace alias with actual path
+                    # e.g. @/utils -> src/utils
+                    clean_target = import_path.replace(alias_key, alias_val, 1)
+                    
+                    # Remove leading slashes if alias_val didn't have them
+                    if clean_target.startswith("/"): clean_target = clean_target[1:]
+
+                    # Construct potential full paths
+                    potential_files = [
+                        clean_target,
+                        clean_target + ".ts", 
+                        clean_target + ".tsx", 
+                        os.path.join(clean_target, "index.ts"),
+                        os.path.join(clean_target, "index.tsx")
+                    ]
+                    
+                    for p in potential_files:
+                        if os.path.exists(p):
+                            resolved = p
+                            break
+                    break # Stop checking aliases once one matches
+            
+            # 2. Handle Relative Imports (sanity check)
+            if not resolved and import_path.startswith("."):
+                dir_name = os.path.dirname(file_path)
+                target = os.path.normpath(os.path.join(dir_name, import_path))
+                
+                if os.path.exists(target + ".ts"): resolved = target + ".ts"
+                elif os.path.exists(target + ".tsx"): resolved = target + ".tsx"
+                elif os.path.isdir(target):
+                    if os.path.exists(os.path.join(target, "index.ts")):
+                        resolved = os.path.join(target, "index.ts")
+            
+            if resolved:
+                # Add a visually distinct system comment
+                header.append(f"// SYSTEM: '{import_path}' resolves to '{resolved}'")
+                processed_imports.add(import_path)
+
+    if header:
+        return "\n".join(header) + "\n" + ("-" * 40) + "\n"
+    return ""
+
+def generate_skeleton(path: str, code: str) -> str:
+    lines = code.splitlines()
+    total_lines = len(lines)
+
+    if total_lines < 200:
+        numbered_lines = [f"{i+1:4d} | {line}" for i, line in enumerate(lines)]
+        return "\n".join(numbered_lines)
+
+    ext = os.path.splitext(path)[1].lower()
+    lang_name = "typescript" if ext in [".ts", ".tsx"] else "javascript"
+
+    parser = get_parser(lang_name)
+    language = get_language(lang_name)
+    
+    tree = parser.parse(bytes(code, "utf8"))
+    
+    query_scm = """
+    (function_declaration body: (_) @body)
+    (method_definition body: (_) @body)
+    (arrow_function body: (_) @body)
+    (class_declaration body: (_) @body)
+    """
+
+    # NEW: Query object is immutable; execution happens via QueryCursor
+    query = Query(language, query_scm)
+    cursor = QueryCursor(query)
+    captures = cursor.captures(tree.root_node)
+
+    nodes = []
+    # Latest API returns a dict { capture_name: [node, ...] }
+    for node_list in captures.values():
+        nodes.extend(node_list)
+
+    nodes.sort(key=lambda n: n.start_point[0])
+    
+    fold_ranges = []
+    last_fold_end = -1
+
+    for node in nodes:
+        start_line = node.start_point[0]
+        end_line = node.end_point[0]
+        
+        if (end_line - start_line) < 5: continue
+        
+        if start_line <= last_fold_end: continue
+        
+        fold_start = start_line + 1
+        fold_end = end_line - 1
+
+        if node.type == "statement_block":
+            for child in node.children:
+                if child.type == "return_statement":
+                    if child.start_point[0] > fold_start + 2:
+                        fold_end = child.start_point[0] - 1
+                    break
+
+        if fold_start < fold_end:
+            fold_ranges.append((fold_start, fold_end))
+            last_fold_end = end_line 
+
+    hidden_lines = set()
+    fold_map = {}
+    for start, end in fold_ranges:
+        fold_map[start] = (end - start + 1)
+        for i in range(start, end + 1):
+            hidden_lines.add(i)
+
+    result = []
+    i = 0
+    while i < len(lines):
+        if i in hidden_lines:
+            if i in fold_map:
+                count = fold_map[i]
+                prev_indent = ""
+                if i > 0 and lines[i-1].strip():
+                        prev_indent = lines[i-1][:len(lines[i-1]) - len(lines[i-1].lstrip())]
+                
+                result.append(f" ... | {prev_indent}// ... logic folded ({count} lines) ...")
+            i += 1
+        else:
+            result.append(f"{i+1:4d} | {lines[i]}")
+            i += 1
+    
+    return "\n".join(result)
 
 def cosine_similarity(v1: List[float], v2: List[float]) -> float:
     """Calculate cosine similarity between two vectors."""
@@ -22,110 +253,6 @@ def cosine_similarity(v1: List[float], v2: List[float]) -> float:
     if magnitude1 == 0 or magnitude2 == 0:
         return 0.0
     return dot_product / (magnitude1 * magnitude2)
-
-def generate_skeleton(path: str, code: str) -> str:
-    """
-    Internal helper: Generates a skeleton view of the code by folding function bodies.
-    Returns the skeleton string. If language is not supported, returns a specific error string.
-    """
-    ext = os.path.splitext(path)[1].lower()
-    valid_exts = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
-    
-    if ext not in valid_exts:
-        return f"Error: Skeleton view only supports JS/TS files. Got {ext}."
-
-    lang_name = "typescript" if ext in [".ts", ".tsx"] else "javascript"
-
-    try:
-        parser = get_parser(lang_name)
-        language = get_language(lang_name)
-        tree = parser.parse(bytes(code, "utf8"))
-        
-        # Query for foldable blocks
-        query_scm = """
-        (function_declaration body: (_) @body)
-        (method_definition body: (_) @body)
-        (arrow_function body: (_) @body)
-        (class_declaration body: (_) @body)
-        """
-
-        query = Query(language, query_scm)
-        cursor = QueryCursor(query)
-        captures_obj = cursor.captures(tree.root_node)
-        
-        nodes = []
-        if isinstance(captures_obj, dict):
-            for _, captured_nodes in captures_obj.items():
-                nodes.extend(captured_nodes)
-        else:
-            nodes = [node for node, _ in captures_obj]
-
-        # Fold large top-level variables (e.g. styled components)
-        program = tree.root_node
-        for child in program.children:
-            if child.type in ("lexical_declaration", "variable_declaration"):
-                if (child.end_point[0] - child.start_point[0]) > 4:
-                    nodes.append(child)
-
-        nodes.sort(key=lambda n: n.start_point[0])
-        fold_ranges = []
-        last_fold_end_line = -1
-
-        for node in nodes:
-            start_line = node.start_point[0]
-            end_line = node.end_point[0]
-            
-            if (end_line - start_line) < 5: continue
-            if start_line <= last_fold_end_line: continue
-            
-            fold_start = start_line + 1
-            fold_end = end_line - 1
-
-            # Smart logic: Keep 'return' statement visible if found
-            if node.type == "statement_block":
-                return_node = None
-                for child in node.children:
-                    if child.type == "return_statement":
-                        return_node = child
-                
-                if return_node:
-                    candidate_end = return_node.start_point[0] - 1
-                    if candidate_end > fold_start:
-                        fold_end = candidate_end
-
-            if fold_start < fold_end:
-                fold_ranges.append((fold_start, fold_end))
-                last_fold_end_line = end_line 
-
-        # Reconstruct
-        fold_map = {start: (end - start + 1) for start, end in fold_ranges}
-        hidden_lines = set()
-        for start, end in fold_ranges:
-            for i in range(start, end + 1):
-                hidden_lines.add(i)
-
-        lines = code.splitlines()
-        result = []
-        i = 0
-        
-        while i < len(lines):
-            if i in hidden_lines:
-                if i in fold_map:
-                    count = fold_map[i]
-                    prev_indent = ""
-                    if i > 0:
-                        prev = lines[i-1]
-                        prev_indent = prev[:len(prev) - len(prev.lstrip())]
-                    result.append(f" ... | {prev_indent}// ... logic folded ({count} lines) ...")
-                i += 1
-            else:
-                result.append(f"{i+1:4d} | {lines[i]}")
-                i += 1
-        
-        return "\n".join(result)
-
-    except Exception as e:
-        return f"Error generating skeleton: {str(e)}"
 
 class LocalTools:
     """
@@ -489,7 +616,11 @@ class LocalTools:
     def read_file_skeleton(path: str) -> str:
         """
         Reads a JS/TS file and returns a skeleton view.
-        It folds logic bodies (hooks, handlers) but keeps the 'return (...)' JSX visible.
+        
+        FEATURES:
+        1. Smart Folding: Folds function bodies but keeps imports and schemas visible.
+        2. Import Hints: Adds comments resolving '@/' aliases to physical files.
+        3. Auto-Expand: Returns full content if file is < 200 lines.
         
         Args:
             path: Relative path to the file.
@@ -497,6 +628,7 @@ class LocalTools:
         try:
             target_path = path
             if not os.path.exists(target_path):
+                # Basic resolution fallback
                 potential_path = os.path.join(PROJECT_ROOT, path)
                 if os.path.exists(potential_path):
                     target_path = potential_path
@@ -507,7 +639,13 @@ class LocalTools:
             with open(target_path, "r", encoding="utf-8", errors="ignore") as f:
                 code = f.read()
             
-            return generate_skeleton(target_path, code)
+            # 1. Generate Import Hints
+            header = resolve_file_imports(target_path, code)
+            
+            # 2. Generate Body
+            body = generate_skeleton(target_path, code)
+            
+            return header + body
 
         except Exception as e:
             return f"Error reading file skeleton: {str(e)}"
