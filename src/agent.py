@@ -47,7 +47,7 @@ def build_graph(tools: List[BaseTool]):
     """
     Constructs the LangChain agent graph with the given tools.
     """
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     memory = MemorySaver()
     
     # Format prompt with current directory
