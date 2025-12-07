@@ -9,6 +9,7 @@ from langchain_core.tools import tool
 
 from tree_sitter import Query, QueryCursor
 from tree_sitter_language_pack import get_language, get_parser
+from openai import OpenAI
 
 PROJECT_ROOT = "./bilkent-tanitim/frontend"
 
@@ -20,6 +21,110 @@ def cosine_similarity(v1: List[float], v2: List[float]) -> float:
     if magnitude1 == 0 or magnitude2 == 0:
         return 0.0
     return dot_product / (magnitude1 * magnitude2)
+
+def generate_skeleton(path: str, code: str) -> str:
+    """
+    Internal helper: Generates a skeleton view of the code by folding function bodies.
+    Returns the skeleton string. If language is not supported, returns a specific error string.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    valid_exts = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
+    
+    if ext not in valid_exts:
+        return f"Error: Skeleton view only supports JS/TS files. Got {ext}."
+
+    lang_name = "typescript" if ext in [".ts", ".tsx"] else "javascript"
+
+    try:
+        parser = get_parser(lang_name)
+        language = get_language(lang_name)
+        tree = parser.parse(bytes(code, "utf8"))
+        
+        # Query for foldable blocks
+        query_scm = """
+        (function_declaration body: (_) @body)
+        (method_definition body: (_) @body)
+        (arrow_function body: (_) @body)
+        (class_declaration body: (_) @body)
+        """
+
+        query = Query(language, query_scm)
+        cursor = QueryCursor(query)
+        captures_obj = cursor.captures(tree.root_node)
+        
+        nodes = []
+        if isinstance(captures_obj, dict):
+            for _, captured_nodes in captures_obj.items():
+                nodes.extend(captured_nodes)
+        else:
+            nodes = [node for node, _ in captures_obj]
+
+        # Fold large top-level variables (e.g. styled components)
+        program = tree.root_node
+        for child in program.children:
+            if child.type in ("lexical_declaration", "variable_declaration"):
+                if (child.end_point[0] - child.start_point[0]) > 4:
+                    nodes.append(child)
+
+        nodes.sort(key=lambda n: n.start_point[0])
+        fold_ranges = []
+        last_fold_end_line = -1
+
+        for node in nodes:
+            start_line = node.start_point[0]
+            end_line = node.end_point[0]
+            
+            if (end_line - start_line) < 5: continue
+            if start_line <= last_fold_end_line: continue
+            
+            fold_start = start_line + 1
+            fold_end = end_line - 1
+
+            # Smart logic: Keep 'return' statement visible if found
+            if node.type == "statement_block":
+                return_node = None
+                for child in node.children:
+                    if child.type == "return_statement":
+                        return_node = child
+                
+                if return_node:
+                    candidate_end = return_node.start_point[0] - 1
+                    if candidate_end > fold_start:
+                        fold_end = candidate_end
+
+            if fold_start < fold_end:
+                fold_ranges.append((fold_start, fold_end))
+                last_fold_end_line = end_line 
+
+        # Reconstruct
+        fold_map = {start: (end - start + 1) for start, end in fold_ranges}
+        hidden_lines = set()
+        for start, end in fold_ranges:
+            for i in range(start, end + 1):
+                hidden_lines.add(i)
+
+        lines = code.splitlines()
+        result = []
+        i = 0
+        
+        while i < len(lines):
+            if i in hidden_lines:
+                if i in fold_map:
+                    count = fold_map[i]
+                    prev_indent = ""
+                    if i > 0:
+                        prev = lines[i-1]
+                        prev_indent = prev[:len(prev) - len(prev.lstrip())]
+                    result.append(f" ... | {prev_indent}// ... logic folded ({count} lines) ...")
+                i += 1
+            else:
+                result.append(f"{i+1:4d} | {lines[i]}")
+                i += 1
+        
+        return "\n".join(result)
+
+    except Exception as e:
+        return f"Error generating skeleton: {str(e)}"
 
 class LocalTools:
     """
@@ -377,112 +482,10 @@ class LocalTools:
         except Exception as e:
             return f"Error finding usage: {str(e)}"
 
-    def _generate_skeleton(self, path: str, code: str) -> str:
-        """
-        Internal helper: Generates a skeleton view of the code by folding function bodies.
-        Returns the skeleton string. If language is not supported, returns a specific error string.
-        """
-        ext = os.path.splitext(path)[1].lower()
-        valid_exts = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
-        
-        if ext not in valid_exts:
-            return f"Error: Skeleton view only supports JS/TS files. Got {ext}."
-
-        lang_name = "typescript" if ext in [".ts", ".tsx"] else "javascript"
-
-        try:
-            parser = get_parser(lang_name)
-            language = get_language(lang_name)
-            tree = parser.parse(bytes(code, "utf8"))
-            
-            # Query for foldable blocks
-            query_scm = """
-            (function_declaration body: (_) @body)
-            (method_definition body: (_) @body)
-            (arrow_function body: (_) @body)
-            (class_declaration body: (_) @body)
-            """
-
-            query = Query(language, query_scm)
-            cursor = QueryCursor(query)
-            captures_obj = cursor.captures(tree.root_node)
-            
-            nodes = []
-            if isinstance(captures_obj, dict):
-                for _, captured_nodes in captures_obj.items():
-                    nodes.extend(captured_nodes)
-            else:
-                nodes = [node for node, _ in captures_obj]
-
-            # Fold large top-level variables (e.g. styled components)
-            program = tree.root_node
-            for child in program.children:
-                if child.type in ("lexical_declaration", "variable_declaration"):
-                    if (child.end_point[0] - child.start_point[0]) > 4:
-                        nodes.append(child)
-
-            nodes.sort(key=lambda n: n.start_point[0])
-            fold_ranges = []
-            last_fold_end_line = -1
-
-            for node in nodes:
-                start_line = node.start_point[0]
-                end_line = node.end_point[0]
-                
-                if (end_line - start_line) < 5: continue
-                if start_line <= last_fold_end_line: continue
-                
-                fold_start = start_line + 1
-                fold_end = end_line - 1
-
-                # Smart logic: Keep 'return' statement visible if found
-                if node.type == "statement_block":
-                    return_node = None
-                    for child in node.children:
-                        if child.type == "return_statement":
-                            return_node = child
-                    
-                    if return_node:
-                        candidate_end = return_node.start_point[0] - 1
-                        if candidate_end > fold_start:
-                            fold_end = candidate_end
-
-                if fold_start < fold_end:
-                    fold_ranges.append((fold_start, fold_end))
-                    last_fold_end_line = end_line 
-
-            # Reconstruct
-            fold_map = {start: (end - start + 1) for start, end in fold_ranges}
-            hidden_lines = set()
-            for start, end in fold_ranges:
-                for i in range(start, end + 1):
-                    hidden_lines.add(i)
-
-            lines = code.splitlines()
-            result = []
-            i = 0
-            
-            while i < len(lines):
-                if i in hidden_lines:
-                    if i in fold_map:
-                        count = fold_map[i]
-                        prev_indent = ""
-                        if i > 0:
-                            prev = lines[i-1]
-                            prev_indent = prev[:len(prev) - len(prev.lstrip())]
-                        result.append(f" ... | {prev_indent}// ... logic folded ({count} lines) ...")
-                    i += 1
-                else:
-                    result.append(f"{i+1:4d} | {lines[i]}")
-                    i += 1
-            
-            return "\n".join(result)
-
-        except Exception as e:
-            return f"Error generating skeleton: {str(e)}"
+    
 
     @tool("read_file_skeleton")
-    def read_file_skeleton(self, path: str) -> str:
+    def read_file_skeleton(path: str) -> str:
         """
         Reads a JS/TS file and returns a skeleton view.
         It folds logic bodies (hooks, handlers) but keeps the 'return (...)' JSX visible.
@@ -503,7 +506,7 @@ class LocalTools:
             with open(target_path, "r", encoding="utf-8", errors="ignore") as f:
                 code = f.read()
             
-            return self._generate_skeleton(target_path, code)
+            return generate_skeleton(target_path, code)
 
         except Exception as e:
             return f"Error reading file skeleton: {str(e)}"
@@ -588,7 +591,7 @@ class LocalTools:
         3. Asks the LLM to select the single best match from these top candidates using Chain-of-Thought.
 
         Args:
-            bug_description: The text describing the bug.
+            bug_info: The bug information object.
             
         Returns:
             A JSON string containing 'reasoning', 'path', and 'component'.
@@ -618,7 +621,7 @@ class LocalTools:
             return json.dumps({"path": "/", "component": None})
 
         try:
-            from openai import OpenAI
+
             client = OpenAI()
         except ImportError:
             return json.dumps({"path": "/", "component": None, "error": "OpenAI library not available"})
@@ -626,7 +629,36 @@ class LocalTools:
         # --- PHASE 1: SEMANTIC SEARCH (RAG) ---
         # Prepare text chunks for embedding
         # We combine path, description, and usecases into a single semantic string for each route.
-        bug_description = "Title: " + bug_info.get("Title") + "\nDescription: " + bug_info.get("Description") + "\nSteps to Reproduce: " + bug_info.get("S2R") + "\nObserved Behavior: " + bug_info.get("OB")
+        # Handle null values safely
+        def safe_get(obj, key, default=""):
+            """Safely get value from dict, handling None/null values."""
+            value = obj.get(key)
+            return value if value is not None else default
+        
+        # Build bug description with null-safe handling
+        bug_parts = []
+        title = safe_get(bug_info, "Title")
+        if title:
+            bug_parts.append(f"Title: {title}")
+        
+        description = safe_get(bug_info, "Description")
+        if description:
+            bug_parts.append(f"Description: {description}")
+        
+        s2r = safe_get(bug_info, "S2R")
+        if s2r:
+            bug_parts.append(f"Steps to Reproduce: {s2r}")
+        
+        ob = safe_get(bug_info, "OB")
+        if ob:
+            bug_parts.append(f"Observed Behavior: {ob}")
+        
+        eb = safe_get(bug_info, "EB")
+        if eb:
+            bug_parts.append(f"Expected Behavior: {eb}")
+        
+        bug_description = "\n".join(bug_parts) if bug_parts else "No bug information available"
+        
         route_texts = []
         for r in routes:
             desc = r.get('description', '')
@@ -740,7 +772,7 @@ class LocalTools:
             })
 
     @tool("submit_final_report")
-    def submit_final_report(self, bug_info: Dict[str, Any], file_paths: List[str]) -> str:
+    def submit_final_report(bug_info: Dict[str, Any], file_paths: List[str]) -> str:
         """
         The FINAL ACTION tool. Call this when you have identified all relevant file paths.
         
@@ -760,13 +792,18 @@ class LocalTools:
         except Exception as e:
             return f"Error initializing OpenAI: {e}"
 
+        # Helper function for safe get with default
+        def safe_get_bug(key, default=None):
+            value = bug_info.get(key)
+            return value if value is not None else default
+        
         final_output = {
-            "ID": bug_info.get("ID"),
-            "Title": bug_info.get("Title"),
-            "Description": bug_info.get("Description"),
-            "OB": bug_info.get("OB"),
-            "EB": bug_info.get("EB"),
-            "S2R": bug_info.get("S2R"),
+            "ID": safe_get_bug("ID"),
+            "Title": safe_get_bug("Title"),
+            "Description": safe_get_bug("Description"),
+            "OB": safe_get_bug("OB"),
+            "EB": safe_get_bug("EB"),
+            "S2R": safe_get_bug("S2R"),
             "relevant_files": []
         }
 
@@ -801,7 +838,7 @@ class LocalTools:
 
             # --- GENERATE SMART CONTEXT FOR LLM ---
             # Try to generate a skeleton. If it fails (e.g. CSS/JSON file), use truncated content.
-            context_for_llm = self._generate_skeleton(target_path, content)
+            context_for_llm = generate_skeleton(target_path, content)
             
             if context_for_llm.startswith("Error:"):
                 # Fallback for non-JS/TS files: use first 500 lines
@@ -811,14 +848,35 @@ class LocalTools:
                     context_for_llm += "\n... (remaining content truncated for description generation) ..."
 
             # --- LLM CALL FOR DESCRIPTION ---
+            # Build bug report section with null-safe handling
+            bug_report_parts = []
+            title = safe_get_bug('Title')
+            if title:
+                bug_report_parts.append(f"Title: {title}")
+            
+            desc = safe_get_bug('Description')
+            if desc:
+                bug_report_parts.append(f"Description: {desc}")
+            
+            s2r = safe_get_bug('S2R')
+            if s2r:
+                bug_report_parts.append(f"Steps to Reproduce: {s2r}")
+            else:
+                bug_report_parts.append("Steps to Reproduce: Not provided")
+            
+            ob = safe_get_bug('OB')
+            if ob:
+                bug_report_parts.append(f"Observed Behavior: {ob}")
+            else:
+                bug_report_parts.append("Observed Behavior: Not provided")
+            
+            bug_report_text = "\n".join(bug_report_parts) if bug_report_parts else "No bug information available"
+            
             prompt = f"""
             You are a Technical QA Lead.
             
             BUG REPORT:
-            Title: {bug_info.get('Title')}
-            Description: {bug_info.get('Description')}
-            Steps to Reproduce: {bug_info.get('S2R')}
-            Observed Behavior: {bug_info.get('OB')}
+            {bug_report_text}
             
             FILE: {path}
             CODE SKELETON / CONTENT:

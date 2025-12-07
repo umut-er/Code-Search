@@ -23,7 +23,7 @@ class BugReportEnhancer:
       - the new bug report text
     """
 
-    def __init__(self, model_name: str = "gpt-4", temperature: float = 0.0):
+    def __init__(self, model_name: str = "gpt-4o-mini", temperature: float = 0.0):
         self.model_name = model_name
         self.temperature = temperature
 

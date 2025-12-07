@@ -12,32 +12,74 @@ from src.agent import build_graph
 
 load_dotenv()
 
-# --- LOGGER SETUP (Aynen Korundu) ---
+# --- LOGGER SETUP (Incremental Update) ---
 class SessionLogger:
     def __init__(self, base_dir="./interactive_logs"):
         self.base_dir = base_dir
         self.session_id = f"session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
         os.makedirs(os.path.join(self.base_dir, self.session_id), exist_ok=True)
         print(f"📁 Logging session to: {os.path.join(self.base_dir, self.session_id)}")
-        self.turn_counter = 0  # Turn sayısını kendi içinde tutsun
+        self.turn_counter = 0
+        self.current_turn_filepath = None
+        self.current_turn_data = None
 
-    def save_turn(self, user_input: str, trace: list, stats: dict):
-        """Saves a JSON log for a single interaction turn."""
+    def start_turn(self, user_input: str):
+        """Initialize a new turn and create the JSON file."""
         self.turn_counter += 1
         filename = f"turn_{self.turn_counter:03d}.json"
-        filepath = os.path.join(self.base_dir, self.session_id, filename)
+        self.current_turn_filepath = os.path.join(self.base_dir, self.session_id, filename)
         
-        log_data = {
+        self.current_turn_data = {
             "timestamp": datetime.datetime.now().isoformat(),
             "turn_index": self.turn_counter,
             "user_input": user_input,
-            "llm_signature": stats.get("model", "unknown"),
-            "token_usage": stats.get("tokens", {}),
-            "trace": trace
+            "llm_signature": "unknown",
+            "token_usage": {"input": 0, "output": 0, "total": 0},
+            "trace": []
         }
+        
+        # Create initial file
+        self._write_turn_file()
 
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(log_data, f, indent=2, default=str)
+    def update_turn_trace(self, trace_entry: dict):
+        """Add a new entry to trace and immediately update the JSON file."""
+        if self.current_turn_data is None:
+            return  # Turn not started yet
+        
+        self.current_turn_data["trace"].append(trace_entry)
+        self._write_turn_file()
+
+    def update_turn_stats(self, stats: dict):
+        """Update stats (model, tokens) and immediately update the JSON file."""
+        if self.current_turn_data is None:
+            return
+        
+        if stats.get("model") and stats["model"] != "unknown_model":
+            self.current_turn_data["llm_signature"] = stats.get("model", "unknown")
+        
+        tokens = stats.get("tokens", {})
+        self.current_turn_data["token_usage"] = {
+            "input": tokens.get("input", 0),
+            "output": tokens.get("output", 0),
+            "total": tokens.get("total", 0)
+        }
+        self._write_turn_file()
+
+    def _write_turn_file(self):
+        """Write current turn data to JSON file (atomic write)."""
+        if self.current_turn_filepath and self.current_turn_data:
+            # Use atomic write: write to temp file, then rename
+            temp_filepath = self.current_turn_filepath + ".tmp"
+            try:
+                with open(temp_filepath, "w", encoding="utf-8") as f:
+                    json.dump(self.current_turn_data, f, indent=2, default=str)
+                os.replace(temp_filepath, self.current_turn_filepath)
+            except Exception as e:
+                print(f"⚠️  Warning: Failed to write log file: {e}")
+
+    def finalize_turn(self, stats: dict):
+        """Final update with complete stats before turn ends."""
+        self.update_turn_stats(stats)
 
 # --- AGENT ENGINE CLASS ---
 class SearchAgentEngine:
@@ -71,7 +113,6 @@ class SearchAgentEngine:
 
         config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 30}
         
-        trace_bucket = []
         turn_stats = {
             "tokens": {"input": 0, "output": 0, "total": 0}, 
             "model": "unknown_model"
@@ -80,6 +121,9 @@ class SearchAgentEngine:
         final_response = ""
 
         print(f"\n--- Agent Processing: {message[:50]}... ---")
+
+        # Start turn logging
+        self.logger.start_turn(message)
 
         try:
             async for event in self.graph.astream_events(
@@ -111,6 +155,9 @@ class SearchAgentEngine:
                                                    output.response_metadata.get("model_name") or \
                                                    output.response_metadata.get("model") or \
                                                    "unknown_model"
+                        
+                        # Update stats in log immediately
+                        self.logger.update_turn_stats(turn_stats)
 
                 # --- 2. TRACE CAPTURE ---
                 if kind == "on_chat_model_stream":
@@ -125,21 +172,23 @@ class SearchAgentEngine:
                     content = data.get("output", {}).content
                     if content:
                         print() 
-                        trace_bucket.append({
+                        trace_entry = {
                             "type": "thought", 
                             "content": content, 
                             "timestamp": time.time()
-                        })
+                        }
+                        self.logger.update_turn_trace(trace_entry)
 
                 elif kind == "on_tool_start":
                     tool_input = data.get("input") or {}
                     print(f"🛠️  Calling {name}...") 
-                    trace_bucket.append({
+                    trace_entry = {
                         "type": "tool_call",
                         "tool": name,
                         "input": tool_input,
                         "timestamp": time.time()
-                    })
+                    }
+                    self.logger.update_turn_trace(trace_entry)
 
                 elif kind == "on_tool_end":
                     output_data = data.get("output")
@@ -147,16 +196,18 @@ class SearchAgentEngine:
                     if len(log_output) > 2000:
                         log_output = log_output[:2000] + "... [TRUNCATED]"
                     
-                    trace_bucket.append({
+                    trace_entry = {
                         "type": "tool_result",
                         "tool": name,
                         "output": log_output,
                         "timestamp": time.time()
-                    })
+                    }
+                    # Update log immediately after tool completes
+                    self.logger.update_turn_trace(trace_entry)
 
-            # --- 3. SAVE LOGS & RETURN ---
-            self.logger.save_turn(message, trace_bucket, turn_stats)
-            print(f"\n💾 Log saved. Turn Stats: {turn_stats['tokens']['total']} tokens.")
+            # --- 3. FINALIZE LOGS & RETURN ---
+            self.logger.finalize_turn(turn_stats)
+            print(f"\n💾 Log finalized. Turn Stats: {turn_stats['tokens']['total']} tokens.")
             
             return {
                 "status": "success",
@@ -168,6 +219,6 @@ class SearchAgentEngine:
         except Exception as e:
             print(f"\n❌ Error: {e}")
             error_entry = {"type": "error", "error": str(e), "timestamp": time.time()}
-            trace_bucket.append(error_entry)
-            self.logger.save_turn(message, trace_bucket, turn_stats)
+            self.logger.update_turn_trace(error_entry)
+            self.logger.finalize_turn(turn_stats)
             return {"status": "error", "error": str(e)}
