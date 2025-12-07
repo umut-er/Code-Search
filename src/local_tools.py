@@ -10,6 +10,7 @@ from langchain_core.tools import tool
 from tree_sitter import Query, QueryCursor
 from tree_sitter_language_pack import get_language, get_parser
 from openai import OpenAI
+import time
 
 PROJECT_ROOT = "./bilkent-tanitim/frontend"
 
@@ -810,6 +811,7 @@ class LocalTools:
         print("\n📝 Generating Final Report Descriptions...")
 
         for path in file_paths:
+            time.sleep(21)
             content = ""
             target_path = path
             
