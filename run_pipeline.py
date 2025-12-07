@@ -83,7 +83,7 @@ class BugFixPipeline:
         agent_handshake_prompt = f"""
         INCOMING ASSIGNMENT: BUG INVESTIGATION
         
-        Here is the validated bug report data you must investigate:
+        BUG INFO:
         {json.dumps(structured_bug, indent=2)}
 
         YOUR MISSION:
