@@ -139,15 +139,11 @@ class LocalTools:
         Returns the structure with EXACT line numbers [start-end].
         Supports: Python, TypeScript, JS, Go, Rust, C++.
         """
-        target_path = path
-        
-        if not os.path.exists(target_path):
-            potential_path = os.path.join(PROJECT_ROOT, path)
-            if os.path.exists(potential_path):
-                target_path = potential_path
+        # Always resolve path relative to PROJECT_ROOT (no absolute path checks)
+        target_path = os.path.join(PROJECT_ROOT, path)
                 
         if not os.path.exists(target_path):
-            return f"Error: File not found at {path} (checked {target_path})"
+            return f"Error: File not found at {path} (resolved to {target_path})"
             
         path = target_path
 
@@ -247,15 +243,11 @@ class LocalTools:
                     Example: start_line=10, end_line=20 will read lines 10 through 20.
         """
         try:
-            target_path = path
+            # Always resolve path relative to PROJECT_ROOT (no absolute path checks)
+            target_path = os.path.join(PROJECT_ROOT, path)
 
             if not os.path.exists(target_path):
-                potential_path = os.path.join(PROJECT_ROOT, path)
-                if os.path.exists(potential_path):
-                    target_path = potential_path
-
-            if not os.path.exists(target_path):
-                return f"Error: File not found at {path} (checked {target_path})"
+                return f"Error: File not found at {path} (resolved to {target_path})"
             
             # Use target_path (the resolved path) instead of the original input path
             with open(target_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -299,15 +291,15 @@ class LocalTools:
         Useful for exploring the codebase structure.
         """
         try:
-            target_path = path
+            # Always resolve path relative to PROJECT_ROOT (no absolute path checks)
+            # If path is ".", use PROJECT_ROOT directly
+            if path == ".":
+                target_path = PROJECT_ROOT
+            else:
+                target_path = os.path.join(PROJECT_ROOT, path)
 
             if not os.path.isdir(target_path):
-                potential_path = os.path.join(PROJECT_ROOT, path)
-                if os.path.isdir(potential_path):
-                    target_path = potential_path
-
-            if not os.path.isdir(target_path):
-                return f"Error: {path} is not a directory (checked {target_path})."
+                return f"Error: {path} is not a directory (resolved to {target_path})."
             
             # Use target_path to list the actual contents
             items = os.listdir(target_path)
@@ -337,12 +329,12 @@ class LocalTools:
             path: Root directory to start search (default is current).
         """
         try:
-            target_path = path
-
-            if path == "." or not os.path.exists(target_path):
-                potential_path = os.path.join(PROJECT_ROOT, path)
-                if os.path.exists(potential_path):
-                    target_path = potential_path
+            # Always search within PROJECT_ROOT (no absolute path checks)
+            # If path is ".", use PROJECT_ROOT directly
+            if path == ".":
+                target_path = PROJECT_ROOT
+            else:
+                target_path = os.path.join(PROJECT_ROOT, path)
             
             if not os.path.exists(target_path):
                 target_path = PROJECT_ROOT
@@ -408,12 +400,12 @@ class LocalTools:
             path: The root directory to search in.
         """
         try:
-            target_path = path
-
-            if path == "." or not os.path.exists(target_path):
-                potential_path = os.path.join(PROJECT_ROOT, path)
-                if os.path.exists(potential_path):
-                    target_path = potential_path
+            # Always search within PROJECT_ROOT (no absolute path checks)
+            # If path is ".", use PROJECT_ROOT directly
+            if path == ".":
+                target_path = PROJECT_ROOT
+            else:
+                target_path = os.path.join(PROJECT_ROOT, path)
             
             if not os.path.exists(target_path):
                 target_path = PROJECT_ROOT
@@ -495,14 +487,11 @@ class LocalTools:
             path: Relative path to the file.
         """
         try:
-            target_path = path
-            if not os.path.exists(target_path):
-                potential_path = os.path.join(PROJECT_ROOT, path)
-                if os.path.exists(potential_path):
-                    target_path = potential_path
+            # Always resolve path relative to PROJECT_ROOT (no absolute path checks)
+            target_path = os.path.join(PROJECT_ROOT, path)
 
             if not os.path.exists(target_path):
-                return f"Error: File not found at {path}"
+                return f"Error: File not found at {path} (resolved to {target_path})"
 
             with open(target_path, "r", encoding="utf-8", errors="ignore") as f:
                 code = f.read()
@@ -524,13 +513,15 @@ class LocalTools:
             context_lines: Number of lines to show around the match (default 1).
         """
         try:
-            target_path = path
-
-            if path == "." or not os.path.exists(target_path):
-                potential_path = os.path.join(PROJECT_ROOT, path)
-                if os.path.exists(potential_path):
-                    target_path = potential_path
+            # Always search within PROJECT_ROOT
+            # If path is "." (current directory), use PROJECT_ROOT directly
+            # Otherwise, join the path with PROJECT_ROOT to search within frontend folder
+            if path == ".":
+                target_path = PROJECT_ROOT
+            else:
+                target_path = os.path.join(PROJECT_ROOT, path)
             
+            # Fallback: if resolved path doesn't exist, search in PROJECT_ROOT
             if not os.path.exists(target_path):
                 target_path = PROJECT_ROOT
 
