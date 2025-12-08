@@ -764,7 +764,7 @@ class LocalTools:
             })
 
     @tool("submit_final_report")
-    def submit_final_report(bug_info: Dict[str, Any], file_paths: List[str]) -> str:
+    def submit_final_report(bug_info: Dict[str, Any], file_paths: List[str], starting_route: str) -> str:
         """
         The FINAL ACTION tool. Call this when you have identified all relevant file paths.
         
@@ -777,6 +777,7 @@ class LocalTools:
         Args:
             bug_info: The enhanced bug report object (must contain 'Title', 'OB', 'S2R', etc.).
             file_paths: A list of relative file paths relevant to the bug (e.g., ["src/components/Login.tsx"]).
+            starting_route: The starting URL path from find_best_route (e.g., "/login").
         """
         # Initialize OpenAI
         try:
@@ -796,7 +797,8 @@ class LocalTools:
             "OB": safe_get_bug("OB"),
             "EB": safe_get_bug("EB"),
             "S2R": safe_get_bug("S2R"),
-            "relevant_files": []
+            "relevant_files": [],
+            "starting_route": starting_route
         }
 
         print("\n📝 Generating Final Report Descriptions...")

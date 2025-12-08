@@ -48,7 +48,7 @@ SYSTEM_PROMPT = (
     "4. **STOP CONDITION (Step 3)**:\n"
     "   - Once you have identified the set of files needed to reproduce the bug (e.g., the page, specific components, utility functions, or API services involved), STOP searching.\n"
     "   - Call `submit_final_report` immediately.\n"
-    "   - **Input**: Pass the original `bug_info` object AND the list of `relevant_files` (each with `path` and `description`).\n\n"
+    "   - **Input**: Pass the original `bug_info` object AND the list of `relevant_files` (each with `path` and `description`) AND the starting route from `find_best_route`.\n\n"
 
     "### CONTEXT BOUNDARY RULES (CRITICAL)\n"
     "- **IGNORE IRRELEVANT CHILDREN**: If the Root Component imports `Header`, `Footer`, and `LoginForm`, and the bug is about the Login, **IGNORE** Header and Footer. Only fetch `LoginForm`.\n"

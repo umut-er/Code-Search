@@ -2,7 +2,9 @@ import os
 import json
 import asyncio
 import logging
+import time
 from dotenv import load_dotenv
+from openai import RateLimitError
 
 # --- IMPORTS ---
 # 1. Jira Integration
@@ -11,6 +13,8 @@ from enhancement.src.fetch_jira import fetch_bug_reports
 from enhancement.src.bug_report_enhancer import BugReportEnhancer
 # 3. Search Agent
 from SearchAgentEngine import SearchAgentEngine
+
+from enhancement.src.reproduction_generator import ReproductionGenerator
 
 # Load Environment Variables
 load_dotenv()
@@ -28,7 +32,7 @@ class BugFixPipeline:
     def __init__(self):
         self.enhancer_agent = BugReportEnhancer(model_name="gpt-4o")
         self.search_engine = SearchAgentEngine()
-        
+        self.reproduction_generator = ReproductionGenerator()
     async def process_latest_ticket(self):
         """
         Fetches the latest bug from Jira and runs the full diagnosis pipeline.
@@ -114,23 +118,81 @@ class BugFixPipeline:
         if os.path.exists("final_context.json"):
             logger.info("🎉 SUCCESS: 'final_context.json' generated successfully.")
             
-            with open("final_context.json", "r") as f:
-                final_data = json.load(f)
-                file_count = len(final_data.get("relevant_files", []))
-                logger.info(f"📁 Agent identified {file_count} relevant files for reproduction.")
-            
-            # ----------------------------------------------------------------
-            # FUTURE INTEGRATION POINT:
-            # Here is where we will call the S2R Generator Agent.
-            # Example:
-            # s2r_agent.generate_script(
-            #     bug_json=structured_bug, 
-            #     code_context=final_data['relevant_files']
-            # )
-            # ----------------------------------------------------------------
+            try:
+                # 1. Dosyayı Oku
+                with open("final_context.json", "r", encoding="utf-8") as f:
+                    final_data = json.load(f)
+
+                # 2. Bug Datasini Ayıkla
+                # Generator sadece Title, OB, EB ve S2R'a ihtiyaç duyar
+                bug_payload = {
+                    "Title": final_data.get("Title"),
+                    "OB": final_data.get("OB"),
+                    "EB": final_data.get("EB"),
+                    "S2R": final_data.get("S2R")
+                }
+
+                # 3. Code Dosyalarini Dictionary Formatina Çevir
+                # final_context.json içinde liste halindeler, bunu {filename: content} formatına çevirmeliyiz
+                code_files_payload = {}
+                relevant_files_list = final_data.get("relevant_files", [])
+                
+                if not relevant_files_list:
+                    logger.warning("⚠️ No relevant files found in final_context.json. S2R might be poor.")
+
+                for file_obj in relevant_files_list:
+                    # Dosya adını ve içeriğini al
+                    fname = file_obj.get("name") or os.path.basename(file_obj.get("path", "unknown"))
+                    content = file_obj.get("content", "")
+                    code_files_payload[fname] = content
+
+                # 4. Starting Route'u Al
+                # final_context.json içinde root seviyesinde olmalı
+                starting_route = final_data.get("starting_route", "/") 
+                
+                logger.info(f"🚀 Generatig S2R for route: {starting_route} with {len(code_files_payload)} files context.")
+
+                # 5. GENERATOR ÇAĞRISI (with rate limit retry)
+                max_retries = 3
+                s2r_output = None
+                
+                for attempt in range(max_retries):
+                    try:
+                        s2r_output = self.reproduction_generator.generate_steps(
+                            bug_data=bug_payload,
+                            code_files=code_files_payload,
+                            starting_route=starting_route
+                        )
+                        break  # Success, exit retry loop
+                    except RateLimitError as e:
+                        if attempt < max_retries - 1:
+                            wait_time = 20
+                            logger.warning(f"⏳ Rate limit hit (attempt {attempt + 1}/{max_retries}). Waiting {wait_time}s before retry...")
+                            time.sleep(wait_time)
+                        else:
+                            logger.error(f"❌ Rate limit error after {max_retries} attempts.")
+                            raise
+                    except Exception as e:
+                        # Non-rate-limit errors: re-raise immediately
+                        logger.error(f"❌ Error during S2R generation: {e}")
+                        raise
+
+                # 6. Sonucu Kaydet (s2r.json)
+                if s2r_output:
+                    output_filename = "s2r.json"
+                    with open(output_filename, "w", encoding="utf-8") as out_f:
+                        json.dump(s2r_output, out_f, indent=2)
+                    
+                    logger.info(f"✅ SUCCESS: Steps to Reproduce saved to '{output_filename}'")
+                else:
+                    logger.error("❌ S2R Generation returned None.")
+
+            except Exception as e:
+                logger.error(f"❌ Error during S2R Generation Phase: {e}")
+                import traceback
+                traceback.print_exc()
         else:
-            logger.warning("⚠️  Pipeline finished, but 'final_context.json' was not found.")
-            logger.warning("The agent may have chatted but failed to call 'submit_final_report'.")
+            logger.warning("⚠️  'final_context.json' not found. Cannot proceed to S2R generation.")
 
 if __name__ == "__main__":
     pipeline = BugFixPipeline()

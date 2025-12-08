@@ -111,7 +111,7 @@ class SearchAgentEngine:
         if thread_id is None:
             thread_id = str(uuid.uuid4()) # Eğer thread verilmezse yeni oluştur
 
-        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 30}
+        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 50}
         
         turn_stats = {
             "tokens": {"input": 0, "output": 0, "total": 0}, 
